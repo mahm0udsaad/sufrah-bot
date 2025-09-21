@@ -1,0 +1,60 @@
+import twilio from 'twilio';
+
+export type TwilioClient = ReturnType<typeof twilio>;
+
+export type OrderType = 'delivery' | 'pickup';
+
+export interface CartItem {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+  currency?: string;
+  image?: string;
+}
+
+export interface OrderState {
+  type?: OrderType;
+  locationAddress?: string;
+  awaitingLocation?: boolean;
+  latitude?: string;
+  longitude?: string;
+  pendingItem?: Omit<CartItem, 'quantity'>;
+  pendingQuantity?: number;
+  paymentMethod?: 'online' | 'cash';
+  awaitingRemoval?: boolean;
+  orderReference?: string;
+  statusStage?: number;
+  lastStatusMessage?: string;
+  branchId?: string;
+  branchName?: string;
+  branchAddress?: string;
+  awaitingOrderReference?: boolean;
+  lastQueriedReference?: string;
+}
+
+export type MessageType = 'text' | 'image' | 'document' | 'audio' | 'template' | 'interactive';
+
+export interface StoredMessage {
+  id: string;
+  conversationId: string;
+  fromPhone: string;
+  toPhone: string;
+  messageType: MessageType;
+  content: string;
+  mediaUrl?: string | null;
+  timestamp: string;
+  isFromCustomer: boolean;
+}
+
+export interface StoredConversation {
+  id: string;
+  customerPhone: string;
+  customerName?: string;
+  status: 'active' | 'closed';
+  lastMessageAt?: string;
+  unreadCount: number;
+  isBotActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
