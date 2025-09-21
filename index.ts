@@ -30,7 +30,7 @@ import { createContent } from './src/twilio/content';
 import { normalizePhoneNumber } from './src/utils/phone';
 import { buildCategoriesFallback, matchesAnyTrigger } from './src/utils/text';
 import { getReadableAddress } from './src/utils/geocode';
-import { MessageType } from './src/types';
+import type { MessageType } from './src/types';
 import {
   PORT,
   VERIFY_TOKEN,
@@ -68,6 +68,7 @@ import { getCachedContentSid, seedCacheFromKey } from './src/workflows/cache';
 import { mapConversationToApi, mapMessageToApi } from './src/workflows/mappers';
 import { broadcast, notifyBotStatus, registerWebsocketClient, removeWebsocketClient } from './src/workflows/events';
 import { recordInboundMessage } from './src/workflows/messages';
+import { registerTemplateTextForSid } from './src/workflows/templateText';
 
 // Initialize Twilio client
 const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
@@ -322,8 +323,10 @@ async function finalizeItemQuantity(
 
   try {
     console.log(`🔍 DEBUG: Creating post-item choice quick reply for ${phoneNumber}`);
-    const quickSid = await getCachedContentSid('post_item_choice', () =>
-      createPostItemChoiceQuickReply(TWILIO_CONTENT_AUTH)
+    const quickSid = await getCachedContentSid(
+      'post_item_choice',
+      () => createPostItemChoiceQuickReply(TWILIO_CONTENT_AUTH),
+      'هل ترغب في إضافة صنف آخر أم المتابعة للدفع؟'
     );
     console.log(`✅ DEBUG: Post-item choice quick reply created: ${quickSid}`);
     
@@ -581,8 +584,10 @@ async function processMessage(phoneNumber: string, messageBody: string, messageT
         await sendTextMessage(client, TWILIO_WHATSAPP_FROM, phoneNumber, updatedCartText);
 
         try {
-          const optionsSid = await getCachedContentSid('cart_options', () =>
-            createCartOptionsQuickReply(TWILIO_CONTENT_AUTH)
+          const optionsSid = await getCachedContentSid(
+            'cart_options',
+            () => createCartOptionsQuickReply(TWILIO_CONTENT_AUTH),
+            'هذه تفاصيل سلتك، ماذا تود أن تفعل؟'
           );
           await sendContentMessage(client, TWILIO_WHATSAPP_FROM, phoneNumber, optionsSid, {
             logLabel: 'Cart options quick reply sent'
@@ -1060,8 +1065,10 @@ ${items
       }
 
       try {
-        const optionsSid = await getCachedContentSid('cart_options', () =>
-          createCartOptionsQuickReply(TWILIO_CONTENT_AUTH)
+        const optionsSid = await getCachedContentSid(
+          'cart_options',
+          () => createCartOptionsQuickReply(TWILIO_CONTENT_AUTH),
+          'هذه تفاصيل سلتك، ماذا تود أن تفعل؟'
         );
         await sendContentMessage(client, TWILIO_WHATSAPP_FROM, phoneNumber, optionsSid, {
           logLabel: 'Cart options quick reply sent'
@@ -1117,6 +1124,7 @@ ${items
             currency: item.currency,
           }))
         );
+        registerTemplateTextForSid(removeSid, 'اختر الصنف الذي ترغب في حذفه من السلة:');
         await sendContentMessage(client, TWILIO_WHATSAPP_FROM, phoneNumber, removeSid, {
           logLabel: 'Remove item list sent'
         });
@@ -1170,8 +1178,10 @@ ${items
       await sendTextMessage(client, TWILIO_WHATSAPP_FROM, phoneNumber, updatedCartText);
 
       try {
-        const optionsSid = await getCachedContentSid('cart_options', () =>
-          createCartOptionsQuickReply(TWILIO_CONTENT_AUTH)
+        const optionsSid = await getCachedContentSid(
+          'cart_options',
+          () => createCartOptionsQuickReply(TWILIO_CONTENT_AUTH),
+          'هذه تفاصيل سلتك، ماذا تود أن تفعل؟'
         );
         await sendContentMessage(client, TWILIO_WHATSAPP_FROM, phoneNumber, optionsSid, {
           logLabel: 'Cart options quick reply sent'
@@ -1259,8 +1269,10 @@ ${items
       await sendTextMessage(client, TWILIO_WHATSAPP_FROM, phoneNumber, summaryText);
 
       try {
-        const paymentSid = await getCachedContentSid('payment_options', () =>
-          createPaymentOptionsQuickReply(TWILIO_CONTENT_AUTH)
+        const paymentSid = await getCachedContentSid(
+          'payment_options',
+          () => createPaymentOptionsQuickReply(TWILIO_CONTENT_AUTH),
+          'اختر وسيلة الدفع:'
         );
         await sendContentMessage(client, TWILIO_WHATSAPP_FROM, phoneNumber, paymentSid, {
           logLabel: 'Payment options quick reply sent'
@@ -1376,8 +1388,11 @@ const server = Bun.serve({
     if (req.method === 'GET' && /^\/api\/conversations\//.test(url.pathname)) {
       const messagesMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
       if (messagesMatch) {
-        const conversationIdRaw = decodeURIComponent(messagesMatch[1]);
-        const normalizedId = normalizePhoneNumber(conversationIdRaw);
+        const conversationIdRaw = messagesMatch[1];
+        if (!conversationIdRaw) {
+          return jsonResponse({ error: 'Conversation id required' }, 400);
+        }
+        const normalizedId = normalizePhoneNumber(decodeURIComponent(conversationIdRaw));
         const messages = getConversationMessages(normalizedId);
         if (!messages.length && !getConversationById(normalizedId)) {
           return jsonResponse({ error: 'Conversation not found' }, 404);
@@ -1390,10 +1405,13 @@ const server = Bun.serve({
     if (req.method === 'POST' && /^\/api\/conversations\//.test(url.pathname)) {
       const sendMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/send$/);
       if (sendMatch) {
-        const conversationIdRaw = decodeURIComponent(sendMatch[1]);
-        const normalizedId = normalizePhoneNumber(conversationIdRaw);
-        const body = await req.json().catch(() => ({}));
-        const messageText = typeof body?.message === 'string' ? body.message.trim() : '';
+        const conversationIdRaw = sendMatch[1];
+        if (!conversationIdRaw) {
+          return jsonResponse({ error: 'Conversation id required' }, 400);
+        }
+        const normalizedId = normalizePhoneNumber(decodeURIComponent(conversationIdRaw));
+        const body = (await req.json().catch(() => ({}))) as { message?: string };
+        const messageText = typeof body.message === 'string' ? body.message.trim() : '';
         if (!messageText) {
           return jsonResponse({ error: 'Message is required' }, 400);
         }
@@ -1405,6 +1423,9 @@ const server = Bun.serve({
           setConversationData(normalizedId, { status: 'active', isBotActive: globalBotEnabled });
           const messages = getConversationMessages(normalizedId);
           const lastMessage = messages[messages.length - 1];
+          if (!lastMessage) {
+            return jsonResponse({ message: null }, 202);
+          }
           return jsonResponse({ message: mapMessageToApi(lastMessage) });
         } catch (error) {
           console.error('❌ Failed to send manual message:', error);
@@ -1414,8 +1435,8 @@ const server = Bun.serve({
     }
 
     if (req.method === 'POST' && url.pathname === '/api/bot/toggle') {
-      const body = await req.json().catch(() => ({}));
-      if (typeof body?.enabled !== 'boolean') {
+      const body = (await req.json().catch(() => ({}))) as { enabled?: boolean };
+      if (typeof body.enabled !== 'boolean') {
         return jsonResponse({ error: '`enabled` boolean is required' }, 400);
       }
       globalBotEnabled = body.enabled;

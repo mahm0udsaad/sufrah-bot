@@ -1,4 +1,4 @@
-import { MessageType, StoredConversation, StoredMessage } from '../types';
+import type { MessageType, StoredConversation, StoredMessage } from '../types';
 import { normalizePhoneNumber } from '../utils/phone';
 
 const conversations = new Map<string, StoredConversation>();
@@ -41,8 +41,21 @@ export function setConversationData(
   const id = normalizePhoneNumber(conversationId);
   const conversation = conversations.get(id);
   if (!conversation) return undefined;
-  Object.assign(conversation, update, { updatedAt: new Date().toISOString() });
-  conversationListeners.forEach((listener) => listener(conversation!));
+
+  let changed = false;
+  for (const [key, value] of Object.entries(update)) {
+    if (value === undefined) continue;
+    if ((conversation as any)[key] !== value) {
+      (conversation as any)[key] = value;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    conversation.updatedAt = new Date().toISOString();
+    conversationListeners.forEach((listener) => listener(conversation!));
+  }
+
   return conversation;
 }
 

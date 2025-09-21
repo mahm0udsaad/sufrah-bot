@@ -1,4 +1,4 @@
-import { CartItem, OrderState } from '../types';
+import type { CartItem, OrderState } from '../types';
 
 const carts = new Map<string, CartItem[]>();
 const orderStates = new Map<string, OrderState>();

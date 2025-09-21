@@ -1,4 +1,4 @@
-import { MessageType } from '../types';
+import type { MessageType } from '../types';
 import { appendMessageToConversation, getOrCreateConversation, setConversationData } from '../state/conversations';
 import { normalizePhoneNumber } from '../utils/phone';
 import { TWILIO_WHATSAPP_FROM } from '../config';

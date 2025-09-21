@@ -1,4 +1,4 @@
-import { StoredConversation, StoredMessage } from '../types';
+import type { StoredConversation, StoredMessage } from '../types';
 
 export type BroadcastEvent =
   | { type: 'message.created'; data: Record<string, any> }

@@ -1,4 +1,4 @@
-import { TwilioClient, MessageType } from '../types';
+import type { TwilioClient, MessageType } from '../types';
 import { appendMessageToConversation } from '../state/conversations';
 import { ensureWhatsAppAddress, normalizePhoneNumber } from '../utils/phone';
 

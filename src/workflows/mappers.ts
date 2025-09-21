@@ -1,4 +1,5 @@
-import { StoredConversation, StoredMessage } from '../types';
+import type { StoredConversation, StoredMessage } from '../types';
+import { resolveTemplateDisplay } from './templateText';
 
 export function mapConversationToApi(conversation: StoredConversation) {
   return {
@@ -18,13 +19,17 @@ export function mapMessageToApi(message: StoredMessage) {
     outgoingType === 'template' || outgoingType === 'interactive'
       ? 'text'
       : outgoingType;
+  const resolvedContent =
+    message.messageType === 'template'
+      ? resolveTemplateDisplay(message.content) ?? message.content
+      : message.content;
   return {
     id: message.id,
     conversation_id: message.conversationId,
     from_phone: message.fromPhone,
     to_phone: message.toPhone,
     message_type: apiType,
-    content: message.content,
+    content: resolvedContent,
     media_url: message.mediaUrl ?? null,
     timestamp: message.timestamp,
     is_from_customer: message.isFromCustomer,
