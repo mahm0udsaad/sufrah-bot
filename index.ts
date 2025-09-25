@@ -1367,7 +1367,8 @@ ${items
 const server = Bun.serve({
   port: PORT,
   async fetch(req: Request, server): Promise<Response> {
-    const url = new URL(req.url);
+    const host = req.headers.get('host') ?? `localhost:${PORT}`;
+    const url = new URL(req.url, `http://${host}`);
     if (req.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: baseHeaders });
     }
