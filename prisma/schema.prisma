@@ -1,0 +1,165 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "darwin-arm64"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Multi-tenant restaurant configuration
+model RestaurantBot {
+  id                String         @id @default(cuid())
+  name              String
+  whatsappFrom      String         @unique // The WhatsApp number for this restaurant (format: whatsapp:+1234567890)
+  
+  // Twilio credentials (can be shared or per-tenant)
+  twilioAccountSid  String
+  twilioAuthToken   String         // encrypted at rest
+  twilioSubaccountSid String?      // optional subaccount
+  
+  // Restaurant settings
+  restaurantName    String
+  supportContact    String?
+  paymentLink       String?
+  isActive          Boolean        @default(true)
+  
+  // Rate limiting
+  maxMessagesPerMin Int            @default(60)
+  maxMessagesPerDay Int            @default(1000)
+  
+  conversations     Conversation[]
+  orders            Order[]
+  webhookLogs       WebhookLog[]
+  
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  @@index([whatsappFrom])
+  @@index([isActive])
+}
+
+// Customer conversations per restaurant
+model Conversation {
+  id              String         @id @default(cuid())
+  restaurantId    String
+  restaurant      RestaurantBot  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  customerWa      String         // Customer WhatsApp number (normalized)
+  customerName    String?
+  
+  status          String         @default("active") // active, closed
+  lastMessageAt   DateTime       @default(now())
+  unreadCount     Int            @default(0)
+  isBotActive     Boolean        @default(true)
+  
+  messages        Message[]
+  orders          Order[]
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  
+  @@unique([restaurantId, customerWa])
+  @@index([restaurantId, lastMessageAt])
+  @@index([restaurantId, status])
+}
+
+// Messages with idempotency
+model Message {
+  id              String         @id @default(cuid())
+  conversationId  String
+  conversation    Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  restaurantId    String
+  
+  direction       String         // IN, OUT
+  waSid           String?        @unique // Twilio MessageSid for idempotency
+  
+  fromPhone       String
+  toPhone         String
+  
+  messageType     String         @default("text") // text, interactive, location, image, etc.
+  content         String         @db.Text
+  mediaUrl        String?
+  
+  metadata        Json?          // Extra payload (profileName, location coords, etc.)
+  
+  createdAt       DateTime       @default(now())
+  
+  @@index([conversationId, createdAt])
+  @@index([restaurantId, createdAt])
+  @@index([waSid])
+}
+
+// Order tracking and state machine
+model Order {
+  id              String         @id @default(cuid())
+  restaurantId    String
+  restaurant      RestaurantBot  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  conversationId  String
+  conversation    Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  orderReference  String         @unique
+  
+  // Order state machine: DRAFT -> CONFIRMED -> PREPARING -> OUT_FOR_DELIVERY -> DELIVERED -> RATED
+  status          String         @default("DRAFT")
+  statusStage     Int            @default(0)
+  
+  orderType       String?        // delivery, pickup
+  
+  // Cart items (JSON for flexibility)
+  items           Json           @default("[]")
+  total           Float          @default(0)
+  currency        String         @default("ر.س")
+  
+  // Delivery/pickup info
+  deliveryAddress String?
+  deliveryLat     String?
+  deliveryLng     String?
+  branchId        String?
+  branchName      String?
+  branchAddress   String?
+  
+  paymentMethod   String?        // online, cash
+  
+  // Rating flow
+  rating          Int?           // 1-5
+  ratingComment   String?
+  ratingAskedAt   DateTime?
+  ratedAt         DateTime?
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  
+  @@index([restaurantId, status])
+  @@index([conversationId, createdAt])
+  @@index([orderReference])
+  @@index([status, updatedAt])
+}
+
+// Audit log for webhook payloads
+model WebhookLog {
+  id              String         @id @default(cuid())
+  restaurantId    String?
+  restaurant      RestaurantBot? @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
+  
+  requestId       String         @unique
+  
+  method          String
+  path            String
+  headers         Json?
+  body            Json?
+  
+  statusCode      Int?
+  errorMessage    String?
+  
+  createdAt       DateTime       @default(now())
+  
+  @@index([restaurantId, createdAt])
+  @@index([requestId])
+  @@index([createdAt])
+}

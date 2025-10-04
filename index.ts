@@ -1,4 +1,6 @@
 import twilio from 'twilio';
+import crypto from 'crypto';
+import { processInboundWebhook } from './src/webhooks/inboundHandler';
 import type { CartItem } from './src/types';
 import {
   addItemToCart,
@@ -1448,6 +1450,37 @@ const server = Bun.serve({
       return jsonResponse({ enabled: globalBotEnabled });
     }
     
+    // WhatsApp multi-tenant webhook (Twilio)
+    if (req.method === 'POST' && url.pathname === '/whatsapp/webhook') {
+      try {
+        const contentType = req.headers.get('content-type') || '';
+        if (!contentType.includes('application/x-www-form-urlencoded')) {
+          return new Response('Unsupported Media Type', { status: 415 });
+        }
+
+        const raw = await req.text();
+        const params = new URLSearchParams(raw);
+        const payload = Object.fromEntries(params.entries());
+
+        const proto = req.headers.get('x-forwarded-proto') || 'http';
+        const fullUrl = `${proto}://${host}${url.pathname}`;
+        const signature = req.headers.get('x-twilio-signature');
+        const requestId = crypto.randomUUID();
+
+        const result = await processInboundWebhook(
+          payload as any,
+          fullUrl,
+          signature,
+          requestId
+        );
+
+        return new Response(null, { status: result.statusCode });
+      } catch (error) {
+        console.error('❌ Error in /whatsapp/webhook:', error);
+        return new Response('Internal Server Error', { status: 500 });
+      }
+    }
+
     // Handle webhook verification
     if (req.method === 'GET' && url.pathname === '/webhook') {
       const mode = url.searchParams.get('hub.mode');
