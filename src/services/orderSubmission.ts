@@ -10,12 +10,14 @@ import {
   type SessionOrderItem,
 } from '../state/session';
 import { calculateCartTotal, getCart, getOrderState } from '../state/orders';
-import { normalizePhoneNumber, standardizeWhatsappNumber, ensureWhatsAppAddress } from '../utils/phone';
-import { sendTextMessage, sendInteractiveMessage } from '../twilio/messaging';
-import { SUFRAH_API_BASE, SUFRAH_API_KEY, TWILIO_WHATSAPP_FROM } from '../config';
+import { normalizePhoneNumber, standardizeWhatsappNumber } from '../utils/phone';
+import { sendTextMessage, sendContentMessage } from '../twilio/messaging';
+import { SUFRAH_API_BASE, SUFRAH_API_KEY, TWILIO_WHATSAPP_FROM, TWILIO_CONTENT_AUTH } from '../config';
 import { logWebhookRequest } from '../db/webhookService';
 import redis from '../redis/client';
-import { createRatingListTemplate } from '../workflows/ratingTemplates';
+import { getCachedContentSid } from '../workflows/cache';
+import { createRatingListContent } from '../workflows/ratingTemplates';
+import { notifyRestaurantOrder } from './whatsapp';
 
 export type OrderSubmissionErrorCode =
   | 'CONFIG_MISSING'
@@ -515,18 +517,23 @@ export async function submitExternalOrder(
 
   await sendTextMessage(twilioClient, senderNumber, sanitizedCustomerPhone, customerMessage);
 
-  // Send rating message
+  // Send rating message via template content
   try {
-    const ratingTemplate = createRatingListTemplate();
-    await sendInteractiveMessage(
+    const ratingContentSid = await getCachedContentSid(
+      'rating_list',
+      () => createRatingListContent(TWILIO_CONTENT_AUTH),
+      'اختر تقييمك من 1 إلى 5 ⭐'
+    );
+    await sendContentMessage(
       twilioClient,
       senderNumber,
       sanitizedCustomerPhone,
-      ratingTemplate.interactive
+      ratingContentSid,
+      { logLabel: 'Rating list template sent' }
     );
-    console.log(`⭐ [OrderSubmission] Rating message sent to ${sanitizedCustomerPhone}`);
+    console.log(`⭐ [OrderSubmission] Rating template sent to ${sanitizedCustomerPhone}`);
   } catch (error) {
-    console.error('⚠️ [OrderSubmission] Failed to send rating message:', error);
+    console.error('⚠️ [OrderSubmission] Failed to send rating template:', error);
   }
 
   if (branchPhone) {
@@ -607,10 +614,9 @@ export async function submitExternalOrder(
         .filter(Boolean)
         .join('\n');
 
-      await twilioClient.messages.create({
-        from: ensureWhatsAppAddress(senderNumber),
-        to: ensureWhatsAppAddress(branchPhone),
-        body: branchMessage,
+      await notifyRestaurantOrder(restaurant.id, branchMessage, {
+        toNumber: branchPhone,
+        fromNumber: senderNumber,
       });
     } catch (error) {
       console.error('⚠️ [OrderSubmission] Failed to notify branch about new order:', error);

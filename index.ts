@@ -101,6 +101,7 @@ seedCacheFromKey('quantity_prompt', process.env.CONTENT_SID_QUANTITY || '');
 seedCacheFromKey('cart_options', process.env.CONTENT_SID_CART_OPTIONS || '');
 seedCacheFromKey('payment_options', process.env.CONTENT_SID_PAYMENT_OPTIONS || '');
 seedCacheFromKey('branch_list', process.env.CONTENT_SID_BRANCH_LIST || '');
+seedCacheFromKey('rating_list', process.env.CONTENT_SID_RATING_LIST || '');
 
 const baseHeaders = {
   'Content-Type': 'application/json',

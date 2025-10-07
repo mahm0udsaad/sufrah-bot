@@ -3,6 +3,8 @@
  * Based on requirements in DASHBOARD_CONTEXT.md
  */
 
+import { createContent } from '../twilio/content';
+
 export interface InteractiveMessage {
   type: string;
   interactive: any;
@@ -56,6 +58,32 @@ export function createRatingListTemplate(): InteractiveMessage {
       },
     },
   };
+}
+
+export async function createRatingListContent(auth: string): Promise<string> {
+  const payload = {
+    friendly_name: `rating_list_${Date.now()}`,
+    language: 'ar',
+    types: {
+      'twilio/list-picker': {
+        header: 'تقييم التجربة',
+        body: 'اختر تقييمك من 1 إلى 5 ⭐',
+        button: 'اختيار التقييم',
+        items: [
+          { id: 'rate_5', item: '⭐⭐⭐⭐⭐ (5)', description: 'ممتاز' },
+          { id: 'rate_4', item: '⭐⭐⭐⭐ (4)', description: 'جيد جداً' },
+          { id: 'rate_3', item: '⭐⭐⭐ (3)', description: 'جيد' },
+          { id: 'rate_2', item: '⭐⭐ (2)', description: 'مقبول' },
+          { id: 'rate_1', item: '⭐ (1)', description: 'ضعيف' },
+        ],
+      },
+      'twilio/text': {
+        body: 'قيّم تجربتك (1 ضعيف – 5 ممتاز). رد بالرقم من 1 إلى 5.',
+      },
+    },
+  };
+
+  return createContent(auth, payload, 'Rating list template created');
 }
 
 /**
@@ -116,4 +144,3 @@ export function parseRatingFromReply(replyId: string): number | null {
 export function isPositiveRating(rating: number): boolean {
   return rating >= 4;
 }
-

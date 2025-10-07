@@ -23,6 +23,9 @@ export const TWILIO_WEBHOOK_VALIDATE = process.env.TWILIO_WEBHOOK_VALIDATE === '
 export const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || TWILIO_MASTER_SID;
 export const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || TWILIO_MASTER_AUTH;
 export const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM || '';
+export const TWILIO_API_KEY = process.env.TWILIO_API_KEY || '';
+export const TWILIO_API_SECRET = process.env.TWILIO_API_SECRET || '';
+export const TWILIO_TEMPLATE_NEW_ORDER = process.env.TWILIO_TEMPLATE_NEW_ORDER || '';
 
 // App settings
 export const NOMINATIM_USER_AGENT = process.env.NOMINATIM_USER_AGENT || 'bun-whatsapp-bot/1.0';

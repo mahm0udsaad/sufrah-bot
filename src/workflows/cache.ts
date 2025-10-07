@@ -12,6 +12,7 @@ const CONTENT_OVERRIDES: Record<string, string | undefined> = {
   cart_options: process.env.CONTENT_SID_CART_OPTIONS,
   payment_options: process.env.CONTENT_SID_PAYMENT_OPTIONS,
   branch_list: process.env.CONTENT_SID_BRANCH_LIST,
+  rating_list: process.env.CONTENT_SID_RATING_LIST,
 };
 
 export function cacheContentSid(key: string, sid: string) {
