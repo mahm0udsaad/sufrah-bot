@@ -4,6 +4,14 @@ export type TwilioClient = ReturnType<typeof twilio>;
 
 export type OrderType = 'delivery' | 'pickup';
 
+export interface CartAddon {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+  currency?: string;
+}
+
 export interface CartItem {
   id: string;
   name: string;
@@ -11,6 +19,8 @@ export interface CartItem {
   quantity: number;
   currency?: string;
   image?: string;
+  notes?: string;
+  addons?: CartAddon[];
 }
 
 export interface OrderState {
@@ -31,6 +41,14 @@ export interface OrderState {
   branchAddress?: string;
   awaitingOrderReference?: boolean;
   lastQueriedReference?: string;
+  restaurant?: {
+    id: string;
+    name?: string | null;
+    whatsappNumber: string;
+    externalMerchantId: string;
+  };
+  activeCategoryId?: string;
+  customerName?: string;
 }
 
 export type MessageType = 'text' | 'image' | 'document' | 'audio' | 'template' | 'interactive';

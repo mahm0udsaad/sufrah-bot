@@ -1,5 +1,5 @@
 import { createContent } from '../twilio/content';
-import { CATEGORY_ITEMS, FOOD_CATEGORIES, MAX_ITEM_QUANTITY } from './menuData';
+import { MAX_ITEM_QUANTITY, type BranchOption, type MenuItem, type MenuCategory } from './menuData';
 
 export async function createOrderTypeQuickReply(auth: string): Promise<string> {
   const payload = {
@@ -22,7 +22,16 @@ export async function createOrderTypeQuickReply(auth: string): Promise<string> {
   return createContent(auth, payload, 'Order type quick reply created');
 }
 
-export async function createFoodListPicker(auth: string): Promise<string> {
+export async function createFoodListPicker(
+  auth: string,
+  categories: MenuCategory[]
+): Promise<string> {
+  const items = categories.map((category) => ({
+    id: `cat_${category.id}`,
+    item: category.item,
+    description: category.description,
+  }));
+
   const payload = {
     friendly_name: `food_list_${Date.now()}`,
     language: 'ar',
@@ -31,10 +40,10 @@ export async function createFoodListPicker(auth: string): Promise<string> {
       'twilio/list-picker': {
         body: 'تصفح قائمتنا:',
         button: 'عرض الفئات',
-        items: FOOD_CATEGORIES,
+        items,
       },
       'twilio/text': {
-        body: `الفئات المتاحة: ${FOOD_CATEGORIES.map((x) => x.item).join('، ')}`,
+        body: `الفئات المتاحة: ${items.map((x) => x.item).join('، ')}`,
       },
     },
   };
@@ -42,7 +51,16 @@ export async function createFoodListPicker(auth: string): Promise<string> {
   return createContent(auth, payload, 'Dynamic list picker created');
 }
 
-export async function createBranchListPicker(auth: string, branches: Array<{ id: string; item: string; description: string }>): Promise<string> {
+export async function createBranchListPicker(
+  auth: string,
+  branches: BranchOption[]
+): Promise<string> {
+  const pickerItems = branches.map((branch) => ({
+    id: `branch_${branch.id}`,
+    item: branch.item,
+    description: branch.description,
+  }));
+
   const payload = {
     friendly_name: `branch_list_${Date.now()}`,
     language: 'ar',
@@ -50,7 +68,7 @@ export async function createBranchListPicker(auth: string, branches: Array<{ id:
       'twilio/list-picker': {
         body: 'اختر الفرع الأقرب لك:',
         button: 'عرض الفروع',
-        items: branches,
+        items: pickerItems,
       },
       'twilio/text': {
         body: branches
@@ -63,10 +81,15 @@ export async function createBranchListPicker(auth: string, branches: Array<{ id:
   return createContent(auth, payload, 'Branch list picker created');
 }
 
-export async function createItemsListPicker(auth: string, categoryId: string, itemLabel: string): Promise<string> {
-  const items = CATEGORY_ITEMS[categoryId] || [];
+export async function createItemsListPicker(
+  auth: string,
+  categoryId: string,
+  itemLabel: string,
+  items: MenuItem[]
+): Promise<string> {
   const listItems = items.map((item) => ({
-    ...item,
+    id: `item_${item.id}`,
+    item: item.item,
     description: item.description
       ? `${item.description} • ${item.price} ${item.currency || 'ر.س'}`
       : `${item.price} ${item.currency || 'ر.س'}`,

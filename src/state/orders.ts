@@ -1,4 +1,4 @@
-import type { CartItem, OrderState } from '../types';
+import type { CartAddon, CartItem, OrderState } from '../types';
 
 const carts = new Map<string, CartItem[]>();
 const orderStates = new Map<string, OrderState>();
@@ -17,9 +17,14 @@ export function getOrderState(phone: string): OrderState {
   return orderStates.get(phone)!;
 }
 
-export function resetOrder(phone: string): void {
+export function resetOrder(phone: string, options?: { preserveRestaurant?: boolean }): void {
+  const current = getOrderState(phone);
   clearCart(phone);
-  orderStates.set(phone, {});
+  const baseState: OrderState = {};
+  if (options?.preserveRestaurant && current.restaurant) {
+    baseState.restaurant = current.restaurant;
+  }
+  orderStates.set(phone, baseState);
 }
 
 export function updateOrderState(phone: string, update: Partial<OrderState>): void {
@@ -44,13 +49,25 @@ export function addItemToCart(
   quantity: number
 ): CartItem {
   const cart = getCart(phone);
-  const existing = cart.find((entry) => entry.id === item.id);
   const safeQuantity = Math.max(1, quantity);
+  const normalizedAddons = normalizeAddons(item.addons);
+  const itemSignature = buildItemSignature(item.id, normalizedAddons, item.notes);
+  const existing = cart.find((entry) =>
+    buildItemSignature(entry.id, normalizeAddons(entry.addons), entry.notes) === itemSignature
+  );
+
   if (existing) {
     existing.quantity += safeQuantity;
+    existing.addons = normalizedAddons;
+    existing.notes = item.notes ?? existing.notes;
     return existing;
   }
-  const newEntry: CartItem = { ...item, quantity: safeQuantity };
+
+  const newEntry: CartItem = {
+    ...item,
+    addons: normalizedAddons,
+    quantity: safeQuantity,
+  };
   cart.push(newEntry);
   return newEntry;
 }
@@ -87,8 +104,16 @@ export function calculateCartTotal(cart: CartItem[]): { total: number; currency?
   let total = 0;
   let currency: string | undefined;
   cart.forEach((item) => {
-    const lineTotal = item.price * item.quantity;
-    total += lineTotal;
+    const basePrice = normalizeNumber(item.price);
+    const baseTotal = basePrice * Math.max(1, item.quantity);
+    const addonsTotal = normalizeAddons(item.addons).reduce((sum, addon) => {
+      if (!currency && addon.currency) {
+        currency = addon.currency;
+      }
+      return sum + addon.price * addon.quantity;
+    }, 0);
+
+    total += baseTotal + addonsTotal;
     if (!currency && item.currency) {
       currency = item.currency;
     }
@@ -101,9 +126,14 @@ export function formatCartMessage(cart: CartItem[]): string {
   if (!cart.length) {
     return '🛒 السلة فارغة.';
   }
-  const lines = cart.map((item) => {
-    const lineTotal = Number((item.price * item.quantity).toFixed(2));
-    return `${item.quantity} × ${item.name} — ${lineTotal} ${item.currency || 'ر.س'}`;
+  const lines = cart.flatMap((item) => {
+    const baseTotal = Number((normalizeNumber(item.price) * item.quantity).toFixed(2));
+    const baseLine = `${item.quantity} × ${item.name} — ${baseTotal} ${item.currency || 'ر.س'}`;
+    const addonLines = normalizeAddons(item.addons).map((addon) => {
+      const addonTotal = Number((addon.price * addon.quantity).toFixed(2));
+      return `  • ${addon.quantity} × ${addon.name} — ${addonTotal} ${addon.currency || item.currency || 'ر.س'}`;
+    });
+    return [baseLine, ...addonLines];
   });
   const { total, currency } = calculateCartTotal(cart);
   return `🛒 السلة الحالية:\n\n${lines.join('\n')}\n\nالإجمالي: ${total} ${currency || 'ر.س'}`;
@@ -113,4 +143,41 @@ export function generateOrderReference(): string {
   const randomSegment = Math.random().toString(36).slice(-5).toUpperCase();
   const timestamp = Date.now().toString(36).slice(-4).toUpperCase();
   return `ORD-${timestamp}-${randomSegment}`;
+}
+
+function normalizeAddons(addons: CartAddon[] | undefined): CartAddon[] {
+  if (!Array.isArray(addons)) {
+    return [];
+  }
+  return addons
+    .filter((addon) => addon && typeof addon.id === 'string')
+    .map((addon) => ({
+      id: addon.id,
+      name: addon.name,
+      price: normalizeNumber(addon.price),
+      quantity: Math.max(1, Math.round(normalizeNumber(addon.quantity) || 1)),
+      currency: addon.currency,
+    }));
+}
+
+function buildItemSignature(id: string, addons: CartAddon[], notes?: string): string {
+  const addonsKey = [...addons]
+    .map((addon) => `${addon.id}:${addon.quantity}`)
+    .sort()
+    .join('|');
+  const notesKey = (notes || '').trim().toLowerCase();
+  return `${id}::${addonsKey}::${notesKey}`;
+}
+
+function normalizeNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim().length) {
+    const parsed = Number.parseFloat(value.replace(/[^\d.\-]/g, ''));
+    if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return 0;
 }

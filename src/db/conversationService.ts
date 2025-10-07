@@ -1,5 +1,6 @@
 import { prisma } from './client';
 import type { Conversation } from '@prisma/client';
+import { ConversationStatus } from '@prisma/client';
 
 /**
  * Find or create a conversation for a restaurant + customer pair
@@ -34,7 +35,7 @@ export async function findOrCreateConversation(
       restaurantId,
       customerWa,
       customerName,
-      status: 'active',
+      status: ConversationStatus.active,
       lastMessageAt: new Date(),
       unreadCount: 0,
       isBotActive: true,
@@ -70,7 +71,7 @@ export async function updateConversation(
 export async function listConversations(
   restaurantId: string,
   options: {
-    status?: string;
+    status?: ConversationStatus;
     limit?: number;
     offset?: number;
   } = {}
@@ -107,4 +108,3 @@ export async function incrementUnreadCount(id: string): Promise<Conversation> {
     data: { unreadCount: { increment: 1 } },
   });
 }
-

@@ -2,6 +2,10 @@
 export const PORT = Number(process.env.PORT || 3000);
 export const NODE_ENV = process.env.NODE_ENV || 'development';
 
+// Redis connection details
+export const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
+export const REDIS_PORT = process.env.REDIS_PORT || 6379;
+export const REDIS_PASSWORD = process.env.REDIS_PASSWORD || '';
 // Database
 export const DATABASE_URL = process.env.DATABASE_URL || '';
 
@@ -26,6 +30,10 @@ export const PAYMENT_LINK = process.env.PAYMENT_LINK || 'https://example.com/pay
 export const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || '+966-500-000000';
 export const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL || 'https://sufrah-bot.vercel.app';
 
+// Sufrah external API
+export const SUFRAH_API_BASE = process.env.SUFRAH_API_BASE || 'https://api.dev.sufrah.sa/api/v1/external';
+export const SUFRAH_API_KEY = `ApiToken ${process.env.SUFRAH_API_KEY}` || '';
+export const SUFRAH_CACHE_TTL_MS = Number(process.env.SUFRAH_CACHE_TTL_MS || 180_000);
 // Auth
 export const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
 

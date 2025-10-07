@@ -195,8 +195,21 @@ export function startOutboundWorker(): Worker<OutboundMessageJob> {
 }
 
 // Graceful shutdown
+let queueShuttingDown = false;
 process.on('beforeExit', async () => {
-  await outboundQueue.close();
-  await connection.quit();
-});
+  if (queueShuttingDown) {
+    return;
+  }
+  queueShuttingDown = true;
 
+  const results = await Promise.allSettled([
+    outboundQueue.close(),
+    connection.quit(),
+  ]);
+
+  results.forEach((result) => {
+    if (result.status === 'rejected') {
+      console.error('❌ Error closing outbound queue Redis connection:', result.reason);
+    }
+  });
+});

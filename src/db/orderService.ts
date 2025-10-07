@@ -1,5 +1,75 @@
 import { prisma } from './client';
-import type { Order } from '@prisma/client';
+import type { Order, Prisma } from '@prisma/client';
+import { OrderStatus } from '@prisma/client';
+
+function toOrderMeta(items: any[], extras: Record<string, any> = {}): Prisma.InputJsonValue {
+  const safeItems = Array.isArray(items) ? items : [];
+
+  const normalized = safeItems.map((item) => {
+    const base = typeof item === 'object' && item !== null ? item : {};
+    const meta = typeof base.meta === 'object' && base.meta !== null ? base.meta : {};
+
+    const productId =
+      typeof meta.productId === 'string'
+        ? meta.productId
+        : typeof base.productId === 'string'
+        ? base.productId
+        : typeof base.id === 'string'
+        ? base.id
+        : undefined;
+
+    const addonsRaw = Array.isArray(meta.addons)
+      ? meta.addons
+      : Array.isArray(base.addons)
+      ? base.addons
+      : [];
+    const addons = addonsRaw
+      .map((addon: any) => {
+        if (!addon || typeof addon !== 'object') {
+          return null;
+        }
+        const addonId =
+          typeof addon.productAddonId === 'string'
+            ? addon.productAddonId
+            : typeof addon.addonId === 'string'
+            ? addon.addonId
+            : typeof addon.id === 'string'
+            ? addon.id
+            : undefined;
+        if (!addonId) {
+          return null;
+        }
+        const qty =
+          typeof addon.quantity === 'number'
+            ? addon.quantity
+            : typeof addon.qty === 'number'
+            ? addon.qty
+            : 1;
+        return {
+          productAddonId: addonId,
+          quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
+        };
+      })
+      .filter(
+        (addon: { productAddonId: string; quantity: number } | null): addon is { productAddonId: string; quantity: number } =>
+          !!addon
+      );
+
+    return {
+      ...base,
+      meta: {
+        ...meta,
+        productId,
+        addons,
+      },
+    };
+  });
+
+  return {
+    ...extras,
+    items: normalized,
+  } as Prisma.InputJsonValue;
+}
 
 /**
  * Create a new order
@@ -21,9 +91,25 @@ export async function createOrder(data: {
 }): Promise<Order> {
   return prisma.order.create({
     data: {
-      ...data,
-      status: 'DRAFT',
+      restaurantId: data.restaurantId,
+      conversationId: data.conversationId,
+      orderReference: data.orderReference,
+      orderType: data.orderType,
+      totalCents: Math.round((data.total || 0) * 100),
+      currency: data.currency ?? 'SAR',
+      deliveryAddress: data.deliveryAddress,
+      deliveryLat: data.deliveryLat,
+      deliveryLng: data.deliveryLng,
+      branchId: data.branchId,
+      branchName: data.branchName,
+      branchAddress: data.branchAddress,
+      paymentMethod: null,
+      status: OrderStatus.DRAFT,
       statusStage: 0,
+      meta: toOrderMeta(data.items, {
+        orderType: data.orderType,
+        currency: data.currency ?? 'SAR',
+      }),
     },
   });
 }
@@ -42,7 +128,7 @@ export async function getOrderByReference(orderReference: string): Promise<Order
  */
 export async function updateOrderStatus(
   id: string,
-  status: string,
+  status: OrderStatus,
   statusStage?: number
 ): Promise<Order> {
   return prisma.order.update({
@@ -66,7 +152,7 @@ export async function updateOrderPayment(
     where: { id },
     data: {
       paymentMethod,
-      status: 'CONFIRMED',
+      status: OrderStatus.CONFIRMED,
       updatedAt: new Date(),
     },
   });
@@ -86,7 +172,7 @@ export async function setOrderRating(
       rating,
       ratingComment,
       ratedAt: new Date(),
-      status: 'RATED',
+      status: OrderStatus.DELIVERED,
       updatedAt: new Date(),
     },
   });
@@ -110,7 +196,7 @@ export async function markRatingAsked(id: string): Promise<Order> {
 export async function findOrdersReadyForRating(limit: number = 10): Promise<Order[]> {
   return prisma.order.findMany({
     where: {
-      status: 'DELIVERED',
+      status: OrderStatus.DELIVERED,
       ratingAskedAt: null,
     },
     orderBy: { updatedAt: 'asc' },
@@ -138,7 +224,7 @@ export async function getConversationOrders(
 export async function getRestaurantOrders(
   restaurantId: string,
   options: {
-    status?: string;
+    status?: OrderStatus;
     limit?: number;
     offset?: number;
   } = {}
@@ -155,4 +241,3 @@ export async function getRestaurantOrders(
     skip: offset,
   });
 }
-

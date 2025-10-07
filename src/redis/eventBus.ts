@@ -1,5 +1,5 @@
-import Redis from 'ioredis';
-import { REDIS_URL } from '../config';
+import type Redis from 'ioredis';
+import baseRedis from './client';
 
 /**
  * Redis-based event bus for real-time dashboard updates
@@ -10,11 +10,15 @@ class RedisEventBus {
   private publisher: Redis;
   private subscriber: Redis;
   private handlers: Map<string, Set<(data: any) => void>>;
+  private isClosing: boolean;
+  private hasClosed: boolean;
 
   constructor() {
-    this.publisher = new Redis(REDIS_URL);
-    this.subscriber = new Redis(REDIS_URL);
+    this.publisher = baseRedis.duplicate();
+    this.subscriber = baseRedis.duplicate();
     this.handlers = new Map();
+    this.isClosing = false;
+    this.hasClosed = false;
 
     this.subscriber.on('message', (channel, message) => {
       const callbacks = this.handlers.get(channel);
@@ -34,6 +38,23 @@ class RedisEventBus {
 
     this.subscriber.on('connect', () => {
       console.log('✅ Redis event subscriber connected');
+    });
+
+    this.publisher.on('error', (err) => {
+      console.error('❌ Redis event publisher error:', err);
+    });
+
+    this.subscriber.on('error', (err) => {
+      console.error('❌ Redis event subscriber error:', err);
+    });
+
+    // Ensure both duplicate connections are established early
+    this.publisher.connect().catch((err) => {
+      console.error('❌ Failed to connect Redis event publisher:', err);
+    });
+
+    this.subscriber.connect().catch((err) => {
+      console.error('❌ Failed to connect Redis event subscriber:', err);
     });
   }
 
@@ -119,8 +140,25 @@ class RedisEventBus {
    * Close connections
    */
   async close(): Promise<void> {
-    await this.publisher.quit();
-    await this.subscriber.quit();
+    if (this.hasClosed || this.isClosing) {
+      return;
+    }
+
+    this.isClosing = true;
+
+    const results = await Promise.allSettled([
+      this.publisher.quit(),
+      this.subscriber.quit(),
+    ]);
+
+    results.forEach((result) => {
+      if (result.status === 'rejected') {
+        console.error('❌ Error closing Redis event bus connection:', result.reason);
+      }
+    });
+
+    this.handlers.clear();
+    this.hasClosed = true;
   }
 }
 
@@ -131,4 +169,3 @@ export const eventBus = new RedisEventBus();
 process.on('beforeExit', async () => {
   await eventBus.close();
 });
-

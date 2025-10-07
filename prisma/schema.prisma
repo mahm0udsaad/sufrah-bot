@@ -1,8 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "darwin-arm64"]
 }
 
@@ -11,155 +8,222 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Multi-tenant restaurant configuration
 model RestaurantBot {
-  id                String         @id @default(cuid())
-  name              String
-  whatsappFrom      String         @unique // The WhatsApp number for this restaurant (format: whatsapp:+1234567890)
-  
-  // Twilio credentials (can be shared or per-tenant)
-  twilioAccountSid  String
-  twilioAuthToken   String         // encrypted at rest
-  twilioSubaccountSid String?      // optional subaccount
-  
-  // Restaurant settings
-  restaurantName    String
-  supportContact    String?
-  paymentLink       String?
-  isActive          Boolean        @default(true)
-  
-  // Rate limiting
-  maxMessagesPerMin Int            @default(60)
-  maxMessagesPerDay Int            @default(1000)
-  
-  conversations     Conversation[]
-  orders            Order[]
-  webhookLogs       WebhookLog[]
-  
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-  
-  @@index([whatsappFrom])
-  @@index([isActive])
+  id                 String   @id @default(cuid())
+  name               String
+  whatsappFrom       String   @unique
+  twilioAccountSid   String
+  twilioAuthToken    String
+  restaurantName     String
+  twilioSubaccountSid String?
+  supportContact     String?
+  paymentLink        String?
+  isActive           Boolean  @default(true)
+  maxMessagesPerMin  Int      @default(60) @map("max_messages_per_min")
+  maxMessagesPerDay  Int      @default(1000) @map("max_messages_per_day")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("RestaurantBot")
 }
 
-// Customer conversations per restaurant
 model Conversation {
-  id              String         @id @default(cuid())
-  restaurantId    String
-  restaurant      RestaurantBot  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  
-  customerWa      String         // Customer WhatsApp number (normalized)
-  customerName    String?
-  
-  status          String         @default("active") // active, closed
-  lastMessageAt   DateTime       @default(now())
-  unreadCount     Int            @default(0)
-  isBotActive     Boolean        @default(true)
-  
-  messages        Message[]
-  orders          Order[]
-  
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  
+  id             String              @id @default(cuid())
+  restaurantId   String              @map("restaurant_id")
+  customerWa     String              @map("customer_wa")
+  customerName   String?             @map("customer_name")
+  status         ConversationStatus  @default(active)
+  lastMessageAt  DateTime            @map("last_message_at")
+  unreadCount    Int                 @default(0) @map("unread_count")
+  isBotActive    Boolean             @default(true) @map("is_bot_active")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+  restaurant     Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  messages       Message[]
+  orders         Order[]
+
   @@unique([restaurantId, customerWa])
+  @@index([customerWa])
   @@index([restaurantId, lastMessageAt])
-  @@index([restaurantId, status])
+  @@map("Conversation")
 }
 
-// Messages with idempotency
 model Message {
-  id              String         @id @default(cuid())
-  conversationId  String
-  conversation    Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  restaurantId    String
-  
-  direction       String         // IN, OUT
-  waSid           String?        @unique // Twilio MessageSid for idempotency
-  
-  fromPhone       String
-  toPhone         String
-  
-  messageType     String         @default("text") // text, interactive, location, image, etc.
-  content         String         @db.Text
-  mediaUrl        String?
-  
-  metadata        Json?          // Extra payload (profileName, location coords, etc.)
-  
-  createdAt       DateTime       @default(now())
-  
+  id             String      @id @default(cuid())
+  restaurantId   String      @map("restaurant_id")
+  conversationId String      @map("conversation_id")
+  direction      MsgDir
+  waSid          String?     @unique @map("wa_sid")
+  messageType    String      @map("message_type")
+  content        String      @map("body")
+  mediaUrl       String?     @map("media_url")
+  metadata       Json?       @map("metadata")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  restaurant     Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
   @@index([conversationId, createdAt])
   @@index([restaurantId, createdAt])
-  @@index([waSid])
+  @@map("Message")
 }
 
-// Order tracking and state machine
 model Order {
-  id              String         @id @default(cuid())
-  restaurantId    String
-  restaurant      RestaurantBot  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  
-  conversationId  String
-  conversation    Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  
-  orderReference  String         @unique
-  
-  // Order state machine: DRAFT -> CONFIRMED -> PREPARING -> OUT_FOR_DELIVERY -> DELIVERED -> RATED
-  status          String         @default("DRAFT")
-  statusStage     Int            @default(0)
-  
-  orderType       String?        // delivery, pickup
-  
-  // Cart items (JSON for flexibility)
-  items           Json           @default("[]")
-  total           Float          @default(0)
-  currency        String         @default("ر.س")
-  
-  // Delivery/pickup info
-  deliveryAddress String?
-  deliveryLat     String?
-  deliveryLng     String?
-  branchId        String?
-  branchName      String?
-  branchAddress   String?
-  
-  paymentMethod   String?        // online, cash
-  
-  // Rating flow
-  rating          Int?           // 1-5
-  ratingComment   String?
-  ratingAskedAt   DateTime?
-  ratedAt         DateTime?
-  
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  
-  @@index([restaurantId, status])
-  @@index([conversationId, createdAt])
-  @@index([orderReference])
-  @@index([status, updatedAt])
+  id              String       @id @default(cuid())
+  restaurantId    String       @map("restaurant_id")
+  conversationId  String       @map("conversation_id")
+  status          OrderStatus  @default(DRAFT)
+  statusStage     Int          @default(0) @map("status_stage")
+  orderReference  String?      @unique @map("order_reference")
+  orderType       String?      @map("order_type")
+  paymentMethod   String?      @map("payment_method")
+  totalCents      Int          @default(0) @map("total_cents")
+  currency        String       @default("SAR")
+  deliveryAddress String?      @map("delivery_address")
+  deliveryLat     String?      @map("delivery_lat")
+  deliveryLng     String?      @map("delivery_lng")
+  branchId        String?      @map("branch_id")
+  branchName      String?      @map("branch_name")
+  branchAddress   String?      @map("branch_address")
+  rating          Int?         @map("rating")
+  ratingComment   String?      @map("rating_comment")
+  ratedAt         DateTime?    @map("rated_at")
+  ratingAskedAt   DateTime?    @map("rating_asked_at")
+  meta            Json?
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  restaurant      Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  items           OrderItem[]
+
+  @@index([restaurantId, createdAt])
+  @@index([status])
+  @@map("Order")
 }
 
-// Audit log for webhook payloads
+model Restaurant {
+  id                 String        @id
+  userId             String        @unique @map("user_id")
+  name               String
+  description        String?
+  address            String?
+  phone              String?
+  whatsappNumber     String?       @map("whatsapp_number")
+  logoUrl            String?       @map("logo_url")
+  isActive           Boolean       @default(true) @map("is_active")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @map("updated_at")
+  externalMerchantId String?       @map("external_merchant_id")
+  conversations      Conversation[]
+  messages           Message[]
+  orders             Order[]
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  usageLogs          UsageLog[]
+  webhookLogs        WebhookLog[]
+
+  @@index([userId])
+  @@map("RestaurantProfile")
+}
+
+model OrderItem {
+  id        String @id
+  orderId   String @map("order_id")
+  name      String
+  qty       Int    @map("qty")
+  unitCents Int    @map("unit_cents")
+  totalCents Int   @map("total_cents")
+  order     Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("OrderItem")
+}
+
 model WebhookLog {
-  id              String         @id @default(cuid())
-  restaurantId    String?
-  restaurant      RestaurantBot? @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
-  
-  requestId       String         @unique
-  
-  method          String
-  path            String
-  headers         Json?
-  body            Json?
-  
-  statusCode      Int?
-  errorMessage    String?
-  
-  createdAt       DateTime       @default(now())
-  
-  @@index([restaurantId, createdAt])
-  @@index([requestId])
-  @@index([createdAt])
+  id            String     @id @default(cuid())
+  restaurantId  String?    @map("restaurant_id")
+  requestId     String     @map("request_id")
+  method        String
+  path          String
+  headers       Json?
+  body          Json?
+  statusCode    Int?       @map("status_code")
+  errorMessage  String?    @map("error_message")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  restaurant    Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId])
+  @@map("WebhookLog")
+}
+
+model Template {
+  id                   String   @id
+  user_id              String
+  name                 String
+  category             String
+  language             String?  @default("en")
+  header_type          String?
+  header_content       String?
+  body_text            String
+  footer_text          String?
+  buttons              Json?    @default("[]")
+  variables            Json?    @default("[]")
+  status               String?  @default("draft")
+  whatsapp_template_id String?
+  usage_count          Int?     @default(0)
+  created_at           DateTime @default(now())
+  updated_at           DateTime
+  User                 User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([user_id])
+}
+
+model UsageLog {
+  id                String     @id
+  restaurant_id     String
+  action            String
+  details           Json?      @default("{}")
+  created_at        DateTime   @default(now())
+  RestaurantProfile Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade)
+
+  @@index([restaurant_id])
+}
+
+model User {
+  id                      String      @id
+  phone                   String      @unique
+  name                    String?
+  email                   String?
+  is_verified             Boolean?    @default(false)
+  verification_code       String?
+  verification_expires_at DateTime?
+  created_at              DateTime    @default(now())
+  updated_at              DateTime
+  RestaurantProfile       Restaurant?
+  Template                Template[]
+}
+
+enum BotStatus {
+  PENDING
+  ACTIVE
+  FAILED
+  VERIFYING
+}
+
+enum ConversationStatus {
+  active
+  closed
+}
+
+enum MsgDir {
+  IN
+  OUT
+}
+
+enum OrderStatus {
+  DRAFT
+  CONFIRMED
+  PREPARING
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
 }

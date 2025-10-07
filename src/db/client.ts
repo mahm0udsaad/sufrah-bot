@@ -16,7 +16,15 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // Graceful shutdown
+let prismaDisconnecting = false;
 process.on('beforeExit', async () => {
-  await prisma.$disconnect();
+  if (prismaDisconnecting) {
+    return;
+  }
+  prismaDisconnecting = true;
+  try {
+    await prisma.$disconnect();
+  } catch (err) {
+    console.error('❌ Error disconnecting Prisma client:', err);
+  }
 });
-

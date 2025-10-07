@@ -78,6 +78,58 @@ export async function sendContentMessage(
   }
 }
 
+export async function sendInteractiveMessage(
+  client: TwilioClient,
+  from: string,
+  to: string,
+  interactive: any
+): Promise<any> {
+  const fromAddress = ensureWhatsAppAddress(from);
+  const toAddress = ensureWhatsAppAddress(to);
+  const normalizedRecipient = normalizePhoneNumber(to);
+  const normalizedSender = normalizePhoneNumber(from);
+
+  try {
+    const messagePayload: any = {
+      from: fromAddress,
+      to: toAddress,
+    };
+
+    // Twilio expects the interactive object to be stringified for WhatsApp
+    if (interactive.type === 'list') {
+      messagePayload.body = JSON.stringify({
+        type: 'list',
+        ...interactive,
+      });
+      messagePayload.contentType = 'application/json';
+    } else if (interactive.type === 'button') {
+      messagePayload.body = JSON.stringify({
+        type: 'button',
+        ...interactive,
+      });
+      messagePayload.contentType = 'application/json';
+    } else {
+      // Fallback to direct body
+      messagePayload.body = JSON.stringify(interactive);
+      messagePayload.contentType = 'application/json';
+    }
+
+    const message = await client.messages.create(messagePayload);
+    console.log('✅ Interactive message sent:', message.sid);
+    appendMessageToConversation(normalizedRecipient, {
+      fromPhone: normalizedSender,
+      toPhone: normalizedRecipient,
+      messageType: 'interactive',
+      content: JSON.stringify(interactive),
+      isFromCustomer: false,
+    });
+    return message;
+  } catch (error) {
+    console.error('❌ Error sending interactive message:', error);
+    throw error;
+  }
+}
+
 export function appendOutboundMessage(
   to: string,
   messageType: MessageType,

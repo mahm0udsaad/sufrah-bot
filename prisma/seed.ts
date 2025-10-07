@@ -18,8 +18,6 @@ async function main() {
       supportContact: '+966-500-000000',
       paymentLink: 'https://example.com/pay',
       isActive: true,
-      maxMessagesPerMin: 60,
-      maxMessagesPerDay: 1000,
     },
   });
 
@@ -42,4 +40,3 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
-
