@@ -49,6 +49,7 @@ import {
   PAYMENT_LINK,
   SUPPORT_CONTACT,
   TWILIO_CONTENT_AUTH,
+  WHATSAPP_SEND_TOKEN,
 } from './src/config';
 import {
   MAX_ITEM_QUANTITY,
@@ -1772,6 +1773,19 @@ const server = Bun.serve({
     }
 
     if (req.method === 'POST' && url.pathname === '/api/whatsapp/send') {
+      if (!WHATSAPP_SEND_TOKEN) {
+        console.error('❌ WHATSAPP_SEND_TOKEN is not configured');
+        return jsonResponse({ error: 'Messaging endpoint is disabled' }, 503);
+      }
+
+      const authHeader = req.headers.get('authorization') || '';
+      const bearerMatch = authHeader.match(/^Bearer\s+(.*)$/i);
+      const providedToken = bearerMatch ? bearerMatch[1].trim() : '';
+
+      if (!providedToken || providedToken !== WHATSAPP_SEND_TOKEN) {
+        return jsonResponse({ error: 'Unauthorized' }, 401);
+      }
+
       const body = (await req.json().catch(() => ({}))) as {
         phoneNumber?: unknown;
         text?: unknown;

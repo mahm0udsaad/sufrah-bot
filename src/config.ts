@@ -29,6 +29,7 @@ export const NOMINATIM_USER_AGENT = process.env.NOMINATIM_USER_AGENT || 'bun-wha
 export const PAYMENT_LINK = process.env.PAYMENT_LINK || 'https://example.com/pay';
 export const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || '+966-500-000000';
 export const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL || 'https://sufrah-bot.vercel.app';
+export const WHATSAPP_SEND_TOKEN = process.env.WHATSAPP_SEND_TOKEN || '';
 
 // Sufrah external API
 export const SUFRAH_API_BASE = process.env.SUFRAH_API_BASE || 'https://api.dev.sufrah.sa/api/v1/external';
