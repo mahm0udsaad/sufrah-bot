@@ -85,6 +85,7 @@ import { broadcast, notifyBotStatus, registerWebsocketClient, removeWebsocketCli
 import { recordInboundMessage } from './src/workflows/messages';
 import { registerTemplateTextForSid } from './src/workflows/templateText';
 import { submitExternalOrder, OrderSubmissionError } from './src/services/orderSubmission';
+import { sendNotification, consumeCachedMessageForPhone } from './src/services/whatsapp';
 
 // Initialize Twilio client
 const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
@@ -1780,8 +1781,8 @@ const server = Bun.serve({
       }
 
       const authHeader = req.headers.get('authorization') || '';
-      const bearerMatch = authHeader.match(/^Bearer\s+(.*)$/i);
-      const providedToken = bearerMatch ? bearerMatch[1].trim() : '';
+      const bearerMatch = authHeader.match(/^Bearer\s+(.*)$/i) as RegExpMatchArray | null;
+      const providedToken = bearerMatch?.[1]?.trim() ?? '';
 
       if (!providedToken || providedToken !== WHATSAPP_SEND_TOKEN) {
         return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -1790,10 +1791,14 @@ const server = Bun.serve({
       const body = (await req.json().catch(() => ({}))) as {
         phoneNumber?: unknown;
         text?: unknown;
+        templateVariables?: unknown;
       };
 
       const rawPhone = typeof body.phoneNumber === 'string' ? body.phoneNumber.trim() : '';
       const messageText = typeof body.text === 'string' ? body.text.trim() : '';
+      const templateVariables = body && typeof body === 'object' && body !== null && typeof (body as any).templateVariables === 'object' && (body as any).templateVariables !== null
+        ? (body as any).templateVariables as Record<string, any>
+        : undefined;
 
       if (!rawPhone) {
         return jsonResponse({ error: '`phoneNumber` is required' }, 400);
@@ -1814,16 +1819,21 @@ const server = Bun.serve({
       }
 
       try {
-        await client.messages.create({
-          from: ensureWhatsAppAddress(TWILIO_WHATSAPP_FROM),
-          to: ensureWhatsAppAddress(standardizedPhone),
-          body: messageText,
+        const result = await sendNotification(standardizedPhone, messageText, {
+          fromNumber: TWILIO_WHATSAPP_FROM,
+          templateVariables,
         });
 
-        return jsonResponse({ status: 'ok', message: 'succesfuly sent' });
+        return jsonResponse({ 
+          status: 'ok', 
+          message: 'Successfully sent',
+          channel: result.channel,
+          sid: result.sid,
+        });
       } catch (error) {
         console.error('❌ Failed to send WhatsApp message via /api/whatsapp/send:', error);
-        return jsonResponse({ error: 'Failed to send message' }, 500);
+        const errorMessage = error instanceof Error ? error.message : 'Failed to send message';
+        return jsonResponse({ error: errorMessage }, 500);
       }
     }
 
@@ -1901,6 +1911,53 @@ const server = Bun.serve({
           const to = params.get('To') || '';
           const bodyText = params.get('Body') || '';
           const profileName = params.get('ProfileName') || '';
+          const buttonPayload = params.get('ButtonPayload') || '';
+          const buttonText = params.get('ButtonText') || '';
+          
+          // Check if this is a "View Order Details" button click
+          const isViewOrderRequest = 
+            buttonPayload === 'view_order' || 
+            bodyText === 'View Order Details' ||
+            buttonText === 'View Order Details';
+            
+          if (isViewOrderRequest) {
+            console.log(`🔘 [ButtonClick] User requested "View Order Details" from ${from}`);
+            
+            // Retrieve cached message (and mark as delivered)
+            const cachedMessage = await consumeCachedMessageForPhone(from);
+            
+            if (cachedMessage) {
+              console.log(`📤 [ButtonClick] Sending cached order details to ${from}`);
+              
+              try {
+                // Button click opens 24h window - send as freeform message directly
+                await sendTextMessage(client, to, from, cachedMessage);
+                
+                console.log(`✅ [ButtonClick] Successfully sent cached message to ${from}`);
+                return new Response(null, { status: 200 });
+              } catch (error) {
+                console.error(`❌ [ButtonClick] Failed to send cached message to ${from}:`, error);
+                return new Response(null, { status: 500 });
+              }
+            } else {
+              console.warn(`⚠️ [ButtonClick] No cached message found for ${from}`);
+              
+              // Send a fallback message directly (button click opened 24h window)
+              try {
+                await sendTextMessage(client, to, from, 'Sorry, order details are no longer available. Please contact support.');
+              } catch (error) {
+                console.error(`❌ [ButtonClick] Failed to send fallback message:`, error);
+              }
+              
+              return new Response(null, { status: 200 });
+            }
+          }
+          
+          // Check if this is any other button click - skip bot processing
+          if (buttonPayload || buttonText) {
+            console.log(`🔘 [OldWebhook] Button click detected, skipping bot processing: ${buttonPayload || buttonText}`);
+            return new Response(null, { status: 200 });
+          }
           
           // Twilio form webhook can include location fields when user shares location
           const latitude = params.get('Latitude');
@@ -1985,7 +2042,42 @@ const server = Bun.serve({
                       case 'interactive':
                         if (message.interactive?.type === 'button_reply') {
                           messageBody = message.interactive.button_reply?.id || '';
-                          console.log(`🔍 DEBUG: Button reply received: "${messageBody}"`);
+                          const buttonText = message.interactive.button_reply?.title || '';
+                          console.log(`🔍 DEBUG: Button reply received: "${messageBody}" (${buttonText})`);
+                          
+                          // Check if this is "View Order Details" button
+                          const isViewOrderRequest = 
+                            messageBody === 'view_order' || 
+                            buttonText === 'View Order Details';
+                            
+                          if (isViewOrderRequest) {
+                            console.log(`🔘 [Meta ButtonClick] User requested "View Order Details" from ${phoneNumber}`);
+                            
+                            // Retrieve cached message (and mark as delivered)
+                            const cachedMessage = await consumeCachedMessageForPhone(phoneNumber);
+                            
+                            if (cachedMessage) {
+                              console.log(`📤 [Meta ButtonClick] Sending cached order details to ${phoneNumber}`);
+                              
+                              try {
+                                // Button click opens 24h window - send as freeform message directly
+                                await sendTextMessage(client, recipientPhone || TWILIO_WHATSAPP_FROM, phoneNumber, cachedMessage);
+                                console.log(`✅ [Meta ButtonClick] Successfully sent cached message to ${phoneNumber}`);
+                              } catch (error) {
+                                console.error(`❌ [Meta ButtonClick] Failed to send cached message to ${phoneNumber}:`, error);
+                              }
+                            } else {
+                              console.warn(`⚠️ [Meta ButtonClick] No cached message found for ${phoneNumber}`);
+                              
+                              // Send a fallback message directly (button click opened 24h window)
+                              try {
+                                await sendTextMessage(client, recipientPhone || TWILIO_WHATSAPP_FROM, phoneNumber, 'Sorry, order details are no longer available. Please contact support.');
+                              } catch (error) {
+                                console.error(`❌ [Meta ButtonClick] Failed to send fallback message:`, error);
+                              }
+                            }
+                            return; // Don't process as normal message
+                          }
                         } else if (message.interactive?.type === 'list_reply') {
                           messageBody = message.interactive.list_reply?.id || '';
                           console.log(`🔍 DEBUG: List reply received: "${messageBody}"`);

@@ -13,6 +13,7 @@ import { tryAcquireIdempotencyLock } from '../utils/idempotency';
 import { checkRestaurantRateLimit, checkCustomerRateLimit } from '../utils/rateLimiter';
 import { validateTwilioSignature, extractTwilioSignature } from '../utils/twilioSignature';
 import { normalizePhoneNumber } from '../utils/phone';
+import { consumeCachedMessageForPhone, sendNotification } from '../services/whatsapp';
 
 export interface InboundWebhookPayload {
   From: string; // Customer WhatsApp number
@@ -26,6 +27,8 @@ export interface InboundWebhookPayload {
   NumMedia?: string;
   MediaUrl0?: string;
   MediaContentType0?: string;
+  ButtonPayload?: string; // Quick reply button ID
+  ButtonText?: string; // Quick reply button text
 }
 
 export interface ProcessedWebhookResult {
@@ -46,9 +49,15 @@ export async function processInboundWebhook(
   signature: string | null,
   requestId: string
 ): Promise<ProcessedWebhookResult> {
-  const { From, To, Body, MessageSid, ProfileName, Latitude, Longitude, Address } = payload;
+  const { From, To, Body, MessageSid, ProfileName, Latitude, Longitude, Address, ButtonPayload, ButtonText } = payload;
 
   try {
+    // Step 0: Detect quick reply button clicks (view_order button) - handling deferred until after conversation is established
+    const isViewOrderRequest = 
+      ButtonPayload === 'view_order' || 
+      Body === 'View Order Details' ||
+      ButtonText === 'View Order Details';
+    
     // Step 1: Route by "To" number → RestaurantBot
     const restaurant = await findRestaurantByWhatsAppNumber(To);
     if (!restaurant) {
@@ -151,6 +160,80 @@ export async function processInboundWebhook(
     let mediaUrl: string | undefined;
     const metadata: any = {};
 
+    // If this is a button response (including "view_order"), handle it now after conversation is established
+    const isButtonResponse = Boolean(ButtonPayload || ButtonText);
+    if (isViewOrderRequest) {
+      console.log(`🔘 [ButtonClick] User requested "View Order Details" from ${From}`);
+
+      // Persist an inbound message for session window tracking (but mark as a button response)
+      try {
+        await createInboundMessage({
+          conversationId: conversation.id,
+          restaurantId: restaurant.id,
+          waSid: MessageSid,
+          fromPhone: customerPhone,
+          toPhone: normalizePhoneNumber(To),
+          messageType: 'button',
+          content: ButtonText || Body || 'View Order Details',
+          metadata: { buttonPayload: ButtonPayload, buttonText: ButtonText, isButtonResponse: true },
+        });
+        await updateConversation(conversation.id, {
+          lastMessageAt: new Date(),
+        });
+      } catch (persistErr) {
+        console.warn('⚠️ [ButtonClick] Failed to persist inbound button message (continuing):', persistErr);
+      }
+
+      // Retrieve cached message (and mark delivered)
+      const cachedMessage = await consumeCachedMessageForPhone(From);
+
+      if (cachedMessage) {
+        console.log(`📤 [ButtonClick] Sending cached order details to ${From}`);
+        try {
+          await sendNotification(From, cachedMessage, { fromNumber: To });
+          console.log(`✅ [ButtonClick] Successfully sent cached message to ${From}`);
+          await logWebhookRequest({
+            restaurantId: restaurant.id,
+            requestId,
+            method: 'POST',
+            path: '/whatsapp/webhook',
+            body: payload,
+            statusCode: 200,
+          });
+          return { success: true, restaurantId: restaurant.id, statusCode: 200 };
+        } catch (error: any) {
+          console.error(`❌ [ButtonClick] Failed to send cached message to ${From}:`, error);
+          await logWebhookRequest({
+            restaurantId: restaurant.id,
+            requestId,
+            method: 'POST',
+            path: '/whatsapp/webhook',
+            body: payload,
+            statusCode: 500,
+            errorMessage: `Failed to send cached message: ${error.message}`,
+          });
+          return { success: false, restaurantId: restaurant.id, error: 'Failed to send cached message', statusCode: 500 };
+        }
+      } else {
+        console.warn(`⚠️ [ButtonClick] No cached message found for ${From}`);
+        try {
+          await sendNotification(From, 'Sorry, order details are no longer available. Please contact support.', { fromNumber: To });
+        } catch (error) {
+          console.error(`❌ [ButtonClick] Failed to send fallback message:`, error);
+        }
+        await logWebhookRequest({
+          restaurantId: restaurant.id,
+          requestId,
+          method: 'POST',
+          path: '/whatsapp/webhook',
+          body: payload,
+          statusCode: 404,
+          errorMessage: 'No cached message found',
+        });
+        return { success: false, restaurantId: restaurant.id, error: 'No cached message found', statusCode: 404 };
+      }
+    }
+
     // Handle location messages
     if (Latitude && Longitude) {
       messageType = 'location';
@@ -195,25 +278,29 @@ export async function processInboundWebhook(
       unreadCount: conversation.unreadCount + 1,
     });
 
-    // Step 9: Publish real-time event to dashboard
-    await eventBus.publishMessage(restaurant.id, {
-      type: 'message.received',
-      message: {
-        id: message.id,
-        conversationId: conversation.id,
-        fromPhone: customerPhone,
-        content,
-        messageType,
-        direction: 'IN',
-        createdAt: message.createdAt,
-      },
-      conversation: {
-        id: conversation.id,
-        customerPhone,
-        customerName: ProfileName || conversation.customerName,
-        unreadCount: conversation.unreadCount + 1,
-      },
-    });
+    // Step 9: Publish real-time event to dashboard (skip if button response)
+    if (!isButtonResponse) {
+      await eventBus.publishMessage(restaurant.id, {
+        type: 'message.received',
+        message: {
+          id: message.id,
+          conversationId: conversation.id,
+          fromPhone: customerPhone,
+          content,
+          messageType,
+          direction: 'IN',
+          createdAt: message.createdAt,
+        },
+        conversation: {
+          id: conversation.id,
+          customerPhone,
+          customerName: ProfileName || conversation.customerName,
+          unreadCount: conversation.unreadCount + 1,
+        },
+      });
+    } else {
+      console.log(`🔘 [ButtonResponse] Skipping event bus publish for button response`);
+    }
 
     // Step 10: Log webhook for audit
     await logWebhookRequest({

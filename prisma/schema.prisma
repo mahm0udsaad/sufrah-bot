@@ -41,6 +41,7 @@ model Conversation {
   restaurant     Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   messages       Message[]
   orders         Order[]
+  outboundMessages OutboundMessage[]
 
   @@unique([restaurantId, customerWa])
   @@index([customerWa])
@@ -65,6 +66,54 @@ model Message {
   @@index([conversationId, createdAt])
   @@index([restaurantId, createdAt])
   @@map("Message")
+}
+
+model OutboundMessage {
+  id             String        @id @default(cuid())
+  restaurantId   String?       @map("restaurant_id")
+  conversationId String?       @map("conversation_id")
+  toPhone        String        @map("to_phone")
+  fromPhone      String        @map("from_phone")
+  body           String?       @map("body")
+  channel        String?       @map("channel")
+  templateSid    String?       @map("template_sid")
+  templateName   String?       @map("template_name")
+  status         String        @default("pending")
+  waSid          String?       @unique @map("wa_sid")
+  errorCode      String?       @map("error_code")
+  errorMessage   String?       @map("error_message")
+  metadata       Json?         @map("metadata")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  restaurant     Restaurant?   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, createdAt])
+  @@index([restaurantId, toPhone])
+  @@index([channel])
+  @@index([toPhone, createdAt])
+  @@map("OutboundMessage")
+}
+
+model MessageCache {
+  id                String    @id @default(cuid())
+  toPhone           String    @map("to_phone")
+  fromPhone         String    @map("from_phone")
+  messageText       String    @map("message_text") @db.Text
+  templateName      String?   @map("template_name")
+  templateSid       String?   @map("template_sid")
+  outboundMessageId String?   @map("outbound_message_id")
+  delivered         Boolean   @default(false)
+  deliveredAt       DateTime? @map("delivered_at")
+  expiresAt         DateTime  @map("expires_at")
+  metadata          Json?     @map("metadata")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([toPhone, createdAt])
+  @@index([toPhone, delivered])
+  @@index([expiresAt])
+  @@map("MessageCache")
 }
 
 model Order {
@@ -116,6 +165,7 @@ model Restaurant {
   conversations      Conversation[]
   messages           Message[]
   orders             Order[]
+  outboundMessages   OutboundMessage[]
   user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   usageLogs          UsageLog[]
   webhookLogs        WebhookLog[]
