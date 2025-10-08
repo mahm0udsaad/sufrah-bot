@@ -1055,66 +1055,72 @@ export async function consumeCachedMessageForPhone(phoneNumber: string): Promise
   
   console.log(`📦 [ConsumeCache] Retrieving and consuming cache for ${phoneNumber} (standardized: ${standardizedPhone})`);
   
-  // Find the most recent undelivered cache entry for this phone
-  const cacheEntry = await prisma.messageCache.findFirst({
-    where: {
-      toPhone: standardizedPhone,
-      delivered: false,
-      expiresAt: {
-        gt: new Date(), // Not expired
+  // Prefer new MessageCache table when available; otherwise fall back to legacy metadata
+  const messageCacheModel = (prisma as any)?.messageCache;
+  if (messageCacheModel) {
+    // Find the most recent undelivered cache entry for this phone
+    const cacheEntry = await messageCacheModel.findFirst({
+      where: {
+        toPhone: standardizedPhone,
+        delivered: false,
+        expiresAt: {
+          gt: new Date(), // Not expired
+        },
       },
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
-  });
-  
-  if (!cacheEntry) {
-    console.log(`ℹ️ [ConsumeCache] No valid cache entry found for ${standardizedPhone}`);
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
     
-    // Fallback to old method (metadata) for backwards compatibility
-    const model = (prisma as any)?.outboundMessage;
-    if (!model) {
-      console.warn('⚠️ [ConsumeCache] OutboundMessage model not available for fallback');
-      return null;
+    if (!cacheEntry) {
+      console.log(`ℹ️ [ConsumeCache] No valid cache entry found for ${standardizedPhone}`);
+    } else {
+      const preview = cacheEntry.messageText.substring(0, 80);
+      console.log(`✅ [ConsumeCache] Found cache entry ${cacheEntry.id}: "${preview}..."`);
+      
+      // Mark as delivered
+      await messageCacheModel.update({
+        where: { id: cacheEntry.id },
+        data: {
+          delivered: true,
+          deliveredAt: new Date(),
+        },
+      });
+      
+      console.log(`✅ [ConsumeCache] Marked cache entry ${cacheEntry.id} as delivered for ${standardizedPhone}`);
+      
+      return cacheEntry.messageText;
     }
-    
-    const recent = await findRecentTemplateSince(standardizedPhone, null);
-    if (!recent) {
-      console.log(`ℹ️ [ConsumeCache] No recent template found for ${standardizedPhone}`);
-      return null;
-    }
-    
-    const metadata = (recent.metadata && typeof recent.metadata === 'object')
-      ? { ...(recent.metadata as any) }
-      : {};
-    
-    const cachedText: string | undefined = metadata?.cachedMessage?.text;
-    
-    if (!cachedText) {
-      console.log(`⚠️ [ConsumeCache] No cached message in metadata for ${standardizedPhone}`);
-      return null;
-    }
-    
-    console.log(`✅ [ConsumeCache] Found cached message in metadata (fallback): "${cachedText.substring(0, 80)}..."`);
-    return cachedText;
+  } else {
+    console.warn('⚠️ [ConsumeCache] MessageCache model not available on Prisma client; using legacy metadata fallback');
   }
   
-  const preview = cacheEntry.messageText.substring(0, 80);
-  console.log(`✅ [ConsumeCache] Found cache entry ${cacheEntry.id}: "${preview}..."`);
+  // Fallback to old method (metadata) for backwards compatibility
+  const model = (prisma as any)?.outboundMessage;
+  if (!model) {
+    console.warn('⚠️ [ConsumeCache] OutboundMessage model not available for fallback');
+    return null;
+  }
   
-  // Mark as delivered
-  await prisma.messageCache.update({
-    where: { id: cacheEntry.id },
-    data: {
-      delivered: true,
-      deliveredAt: new Date(),
-    },
-  });
+  const recent = await findRecentTemplateSince(standardizedPhone, null);
+  if (!recent) {
+    console.log(`ℹ️ [ConsumeCache] No recent template found for ${standardizedPhone}`);
+    return null;
+  }
   
-  console.log(`✅ [ConsumeCache] Marked cache entry ${cacheEntry.id} as delivered for ${standardizedPhone}`);
+  const metadata = (recent.metadata && typeof recent.metadata === 'object')
+    ? { ...(recent.metadata as any) }
+    : {};
   
-  return cacheEntry.messageText;
+  const cachedText: string | undefined = metadata?.cachedMessage?.text;
+  
+  if (!cachedText) {
+    console.log(`⚠️ [ConsumeCache] No cached message in metadata for ${standardizedPhone}`);
+    return null;
+  }
+  
+  console.log(`✅ [ConsumeCache] Found cached message in metadata (fallback): "${cachedText.substring(0, 80)}..."`);
+  return cachedText;
 }
 
 /**
@@ -1207,7 +1213,7 @@ export async function sendNotification(
           await setCachedMessageOnTemplate(recentTemplate.id, standardizedRecipient, trimmedText, false); // false = always update
           
           // Also update MessageCache
-          const existingCache = await prisma.messageCache.findFirst({
+          const existingCache = await (prisma as any)?.messageCache?.findFirst({
             where: {
               toPhone: standardizedRecipient,
               delivered: false,
@@ -1216,7 +1222,7 @@ export async function sendNotification(
           });
           
           if (existingCache) {
-            await prisma.messageCache.update({
+            await (prisma as any).messageCache.update({
               where: { id: existingCache.id },
               data: {
                 messageText: trimmedText,
@@ -1227,7 +1233,7 @@ export async function sendNotification(
           } else {
             // Create new cache entry
             const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
-            await prisma.messageCache.create({
+            await (prisma as any).messageCache.create({
               data: {
                 toPhone: standardizedRecipient,
                 fromPhone: fromNumber,
@@ -1313,7 +1319,7 @@ export async function sendNotification(
       
       // Save message to MessageCache for button click retrieval
       const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
-      const cacheEntry = await prisma.messageCache.create({
+      const cacheEntry = await (prisma as any).messageCache?.create({
         data: {
           toPhone: standardizedRecipient,
           fromPhone: fromNumber,
@@ -1329,7 +1335,11 @@ export async function sendNotification(
           },
         },
       });
-      console.log(`📦 [MessageCache] Created cache entry ${cacheEntry.id} for template ${usedTemplateName}`);
+      if (cacheEntry) {
+        console.log(`📦 [MessageCache] Created cache entry ${cacheEntry.id} for template ${usedTemplateName}`);
+      } else {
+        console.warn('⚠️ [MessageCache] Prisma client has no messageCache model; skipped cache creation');
+      }
     }
   
     const successMetadata = {
