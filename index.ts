@@ -67,6 +67,8 @@ import {
   type BranchOption,
 } from './src/workflows/menuData';
 import { getRestaurantByWhatsapp, type SufrahRestaurant } from './src/db/sufrahRestaurantService';
+import { findOrCreateConversation as findOrCreateDbConversation, updateConversation as updateDbConversation } from './src/db/conversationService';
+import { createInboundMessage } from './src/db/messageService';
 import {
   createOrderTypeQuickReply,
   createFoodListPicker,
@@ -1923,6 +1925,40 @@ const server = Bun.serve({
           if (isViewOrderRequest) {
             console.log(`🔘 [ButtonClick] User requested "View Order Details" from ${from}`);
             
+            // Persist button click to database for 24h window tracking
+            try {
+              const restaurantContext = await resolveRestaurantContext(from, to);
+              if (restaurantContext) {
+                const normalizedCustomer = normalizePhoneNumber(from);
+                const normalizedRecipient = normalizePhoneNumber(to);
+                const dbConversation = await findOrCreateDbConversation(
+                  restaurantContext.id,
+                  normalizedCustomer,
+                  profileName
+                );
+                
+                // Create inbound message record for button click
+                await createInboundMessage({
+                  conversationId: dbConversation.id,
+                  restaurantId: restaurantContext.id,
+                  waSid: `button_${Date.now()}_${from}`, // Synthetic ID for button clicks
+                  fromPhone: normalizedCustomer,
+                  toPhone: normalizedRecipient,
+                  messageType: 'button',
+                  content: buttonText || 'View Order Details',
+                  metadata: { buttonPayload, buttonText, isButtonResponse: true },
+                });
+                
+                await updateDbConversation(dbConversation.id, {
+                  lastMessageAt: new Date(),
+                });
+                
+                console.log(`✅ [ButtonClick] Persisted button click to database for ${from}`);
+              }
+            } catch (persistErr) {
+              console.warn('⚠️ [ButtonClick] Failed to persist button click to database (continuing):', persistErr);
+            }
+            
             // Retrieve cached message (and mark as delivered)
             const cachedMessage = await consumeCachedMessageForPhone(from);
             
@@ -2052,6 +2088,40 @@ const server = Bun.serve({
                             
                           if (isViewOrderRequest) {
                             console.log(`🔘 [Meta ButtonClick] User requested "View Order Details" from ${phoneNumber}`);
+                            
+                            // Persist button click to database for 24h window tracking
+                            try {
+                              const restaurantContext = await resolveRestaurantContext(phoneNumber, recipientPhone);
+                              if (restaurantContext) {
+                                const normalizedCustomer = normalizePhoneNumber(phoneNumber);
+                                const normalizedRecipient = normalizePhoneNumber(recipientPhone || TWILIO_WHATSAPP_FROM);
+                                const dbConversation = await findOrCreateDbConversation(
+                                  restaurantContext.id,
+                                  normalizedCustomer,
+                                  contactProfileName
+                                );
+                                
+                                // Create inbound message record for button click
+                                await createInboundMessage({
+                                  conversationId: dbConversation.id,
+                                  restaurantId: restaurantContext.id,
+                                  waSid: `button_${Date.now()}_${phoneNumber}`, // Synthetic ID for button clicks
+                                  fromPhone: normalizedCustomer,
+                                  toPhone: normalizedRecipient,
+                                  messageType: 'button',
+                                  content: buttonText || 'View Order Details',
+                                  metadata: { buttonPayload: messageBody, buttonText, isButtonResponse: true },
+                                });
+                                
+                                await updateDbConversation(dbConversation.id, {
+                                  lastMessageAt: new Date(),
+                                });
+                                
+                                console.log(`✅ [Meta ButtonClick] Persisted button click to database for ${phoneNumber}`);
+                              }
+                            } catch (persistErr) {
+                              console.warn('⚠️ [Meta ButtonClick] Failed to persist button click to database (continuing):', persistErr);
+                            }
                             
                             // Retrieve cached message (and mark as delivered)
                             const cachedMessage = await consumeCachedMessageForPhone(phoneNumber);
