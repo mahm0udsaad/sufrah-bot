@@ -188,9 +188,10 @@ export async function processInboundWebhook(
       const cachedMessage = await consumeCachedMessageForPhone(From);
 
       if (cachedMessage) {
-        console.log(`📤 [ButtonClick] Sending cached order details to ${From}`);
+        console.log(`📤 [ButtonClick] Sending cached order details to ${From} (freeform - button opened 24h window)`);
         try {
-          await sendNotification(From, cachedMessage, { fromNumber: To });
+          // Button click opens 24h window - force freeform sending
+          await sendNotification(From, cachedMessage, { fromNumber: To, forceFreeform: true });
           console.log(`✅ [ButtonClick] Successfully sent cached message to ${From}`);
           await logWebhookRequest({
             restaurantId: restaurant.id,
@@ -217,7 +218,8 @@ export async function processInboundWebhook(
       } else {
         console.warn(`⚠️ [ButtonClick] No cached message found for ${From}`);
         try {
-          await sendNotification(From, 'Sorry, order details are no longer available. Please contact support.', { fromNumber: To });
+          // Send fallback as freeform (button click opened 24h window)
+          await sendNotification(From, 'Sorry, order details are no longer available. Please contact support.', { fromNumber: To, forceFreeform: true });
         } catch (error) {
           console.error(`❌ [ButtonClick] Failed to send fallback message:`, error);
         }

@@ -1927,11 +1927,11 @@ const server = Bun.serve({
             const cachedMessage = await consumeCachedMessageForPhone(from);
             
             if (cachedMessage) {
-              console.log(`📤 [ButtonClick] Sending cached order details to ${from}`);
+              console.log(`📤 [ButtonClick] Sending cached order details to ${from} (freeform - button opened 24h window)`);
               
               try {
                 // Button click opens 24h window - send as freeform message directly
-                await sendTextMessage(client, to, from, cachedMessage);
+                await sendNotification(from, cachedMessage, { fromNumber: to, forceFreeform: true });
                 
                 console.log(`✅ [ButtonClick] Successfully sent cached message to ${from}`);
                 return new Response(null, { status: 200 });
@@ -1944,7 +1944,7 @@ const server = Bun.serve({
               
               // Send a fallback message directly (button click opened 24h window)
               try {
-                await sendTextMessage(client, to, from, 'Sorry, order details are no longer available. Please contact support.');
+                await sendNotification(from, 'Sorry, order details are no longer available. Please contact support.', { fromNumber: to, forceFreeform: true });
               } catch (error) {
                 console.error(`❌ [ButtonClick] Failed to send fallback message:`, error);
               }
@@ -2057,11 +2057,11 @@ const server = Bun.serve({
                             const cachedMessage = await consumeCachedMessageForPhone(phoneNumber);
                             
                             if (cachedMessage) {
-                              console.log(`📤 [Meta ButtonClick] Sending cached order details to ${phoneNumber}`);
+                              console.log(`📤 [Meta ButtonClick] Sending cached order details to ${phoneNumber} (freeform - button opened 24h window)`);
                               
                               try {
                                 // Button click opens 24h window - send as freeform message directly
-                                await sendTextMessage(client, recipientPhone || TWILIO_WHATSAPP_FROM, phoneNumber, cachedMessage);
+                                await sendNotification(phoneNumber, cachedMessage, { fromNumber: recipientPhone || TWILIO_WHATSAPP_FROM, forceFreeform: true });
                                 console.log(`✅ [Meta ButtonClick] Successfully sent cached message to ${phoneNumber}`);
                               } catch (error) {
                                 console.error(`❌ [Meta ButtonClick] Failed to send cached message to ${phoneNumber}:`, error);
@@ -2071,7 +2071,7 @@ const server = Bun.serve({
                               
                               // Send a fallback message directly (button click opened 24h window)
                               try {
-                                await sendTextMessage(client, recipientPhone || TWILIO_WHATSAPP_FROM, phoneNumber, 'Sorry, order details are no longer available. Please contact support.');
+                                await sendNotification(phoneNumber, 'Sorry, order details are no longer available. Please contact support.', { fromNumber: recipientPhone || TWILIO_WHATSAPP_FROM, forceFreeform: true });
                               } catch (error) {
                                 console.error(`❌ [Meta ButtonClick] Failed to send fallback message:`, error);
                               }
