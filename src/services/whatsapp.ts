@@ -1211,8 +1211,9 @@ export async function sendNotification(
     } else {
       // Outside 24h window - must use template
       // Always send a new template message (don't skip based on recent templates)
-      console.log('🧾 [Notification] Using template with button (outside 24h window).');
+      console.log('🧾 [Notification] Using template (outside 24h window).');
       
+      // Try button template first (will fall back to simple template if not approved)
       usedTemplateSid = await ensureOrderButtonTemplateSid();
       usedTemplateName = ORDER_NOTIFICATION_WITH_BUTTON;
   
@@ -1265,10 +1266,43 @@ export async function sendNotification(
       console.log('🧾 [Notification] Template send params prepared.', {
         contentSid: sendParams.contentSid,
       });
-  
-      twilioResponse = await client.messages.create(sendParams);
-  
-      console.log(`✅ [Notification] Sent as template message with "View Order Details" button.`);
+
+      try {
+        twilioResponse = await client.messages.create(sendParams);
+        console.log(`✅ [Notification] Sent as template message with "${usedTemplateName}".`);
+      } catch (templateError) {
+        // If button template is not approved (63016), fall back to simple template
+        if (usedTemplateName === ORDER_NOTIFICATION_WITH_BUTTON && isSessionExpiredError(templateError)) {
+          console.warn(`⚠️ [Notification] Button template not approved yet (63016). Falling back to simple template.`);
+          
+          // Retry with simple template
+          usedTemplateSid = await ensureNewOrderTemplateSid();
+          usedTemplateName = NEW_ORDER_TEMPLATE_NAME;
+          
+          sendParams.contentSid = usedTemplateSid;
+          sendParams.contentVariables = JSON.stringify({ order_text: trimmedText });
+          
+          metadataState.template = {
+            sid: usedTemplateSid,
+            name: usedTemplateName,
+            reason: 'button_template_not_approved_fallback',
+          };
+          
+          await updateOutboundMessageChannel(
+            outboundLog?.id ?? null,
+            channel,
+            metadataState,
+            usedTemplateSid,
+            usedTemplateName
+          );
+          
+          twilioResponse = await client.messages.create(sendParams);
+          console.log(`✅ [Notification] Sent as simple template message (fallback from button template).`);
+        } else {
+          // Other errors, re-throw
+          throw templateError;
+        }
+      }
       
       // Save message to MessageCache for button click retrieval
       const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
