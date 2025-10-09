@@ -668,9 +668,6 @@ export async function sendWhatsAppMessage(
   let twilioResponse;
   let usedTemplateSid: string | undefined;
   let usedTemplateName: string | undefined;
-  // Controls whether to proceed with sending a template after recent-template logic
-  let shouldSendTemplate = true;
-  
 
   const metadataState: Record<string, any> = {
     request: {
@@ -794,7 +791,7 @@ export async function sendWhatsAppMessage(
       ...metadataState,
       result: {
         channel,
-        sid: twilioResponse?.sid,
+        sid: twilioResponse.sid,
         sentAt: new Date().toISOString(),
         templateSid: usedTemplateSid,
         templateName: usedTemplateName,
@@ -803,7 +800,7 @@ export async function sendWhatsAppMessage(
 
     await markOutboundMessageSent(outboundLog?.id ?? null, {
       channel,
-      waSid: twilioResponse?.sid || 'unknown',
+      waSid: twilioResponse.sid,
       templateSid: usedTemplateSid,
       templateName: usedTemplateName,
       metadata: successMetadata,
@@ -1173,8 +1170,6 @@ export async function sendNotification(
   let twilioResponse;
   let usedTemplateSid: string | undefined;
   let usedTemplateName: string | undefined;
-  // Controls whether to proceed with sending a template after recent-template logic
-  let shouldSendTemplate = true;
 
   const metadataState: Record<string, any> = {
     request: {
@@ -1214,181 +1209,92 @@ export async function sendNotification(
       twilioResponse = await sendFreeformMessage(client, fromAddress, toAddress, trimmedText);
       console.log(`✅ [Notification] Sent as freeform message (within 24h window).`);
     } else {
-      // Outside 24h window or no history
-      // Check if we sent a template in the last 24h to prevent spam
-      const recentTemplate = await findRecentTemplateSince(standardizedRecipient, windowCheck.lastInboundAt);
+      // Outside 24h window - must use template
+      // Always send a new template message (don't skip based on recent templates)
+      console.log('🧾 [Notification] Using template with button (outside 24h window).');
       
-      if (recentTemplate) {
-        // Check if the template was sent within the last 24h
-        const templateAge = Date.now() - recentTemplate.createdAt.getTime();
-        const templateWithin24h = templateAge <= SESSION_WINDOW_MS;
-        
-        if (templateWithin24h) {
-          console.log(`♻️ [Notification] Template sent ${Math.round(templateAge / 60000)} minutes ago (within 24h); attempting to send freeform text now.`);
-          try {
-            // Try sending freeform despite being in template path due to recent template
-            channel = 'freeform';
-            metadataState.fallback = {
-              reason: 'recent_template_within_24h_send_freeform',
-              retriedAt: new Date().toISOString(),
-            };
-            await updateOutboundMessageChannel(
-              outboundLog?.id ?? null,
-              channel,
-              metadataState
-            );
-            twilioResponse = await sendFreeformMessage(client, fromAddress, toAddress, trimmedText);
-            console.log(`✅ [Notification] Sent as freeform message (recent template within 24h).`);
-            // Avoid sending another template below
-            shouldSendTemplate = false;
-          } catch (error) {
-            if (isSessionExpiredError(error)) {
-              // If WhatsApp still rejects freeform (e.g., no 24h window), fall back to cache-only behavior
-              console.warn('⚠️ [Notification] Freeform send rejected (63016). Updating cache and skipping new template.');
-              // Revert channel label for record-keeping
-              channel = 'template';
-              await setCachedMessageOnTemplate(recentTemplate.id, standardizedRecipient, trimmedText, false); // false = always update
-              
-              // Also update MessageCache
-              const existingCache = await (prisma as any)?.messageCache?.findFirst({
-                where: {
-                  toPhone: standardizedRecipient,
-                  delivered: false,
-                },
-                orderBy: { createdAt: 'desc' },
-              });
-              
-              if (existingCache) {
-                await (prisma as any).messageCache.update({
-                  where: { id: existingCache.id },
-                  data: {
-                    messageText: trimmedText,
-                    updatedAt: new Date(),
-                  },
-                });
-                console.log(`📦 [MessageCache] Updated existing cache entry ${existingCache.id} with new message`);
-              } else {
-                // Create new cache entry
-                const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
-                await (prisma as any).messageCache.create({
-                  data: {
-                    toPhone: standardizedRecipient,
-                    fromPhone: fromNumber,
-                    messageText: trimmedText,
-                    templateName: ORDER_NOTIFICATION_WITH_BUTTON,
-                    outboundMessageId: recentTemplate.id,
-                    expiresAt,
-                    metadata: {
-                      source: 'notification_api',
-                      reason: 'template_update',
-                    },
-                  },
-                });
-                console.log(`📦 [MessageCache] Created new cache entry for ${standardizedRecipient}`);
-              }
-              // Return synthetic result (no new Twilio send)
-              return { sid: recentTemplate.waSid || recentTemplate.id, channel: 'template' };
-            }
-            // Non-63016 errors propagate to outer error handling
-            throw error;
-          }
-        } else {
-          console.log(`🔄 [Notification] Last template was sent ${Math.round(templateAge / 60000)} minutes ago (>24h); sending fresh template.`);
-        }
-      }
+      usedTemplateSid = await ensureOrderButtonTemplateSid();
+      usedTemplateName = ORDER_NOTIFICATION_WITH_BUTTON;
+  
+      // Cache the original message text for later retrieval when user clicks button
+      metadataState.template = {
+        sid: usedTemplateSid,
+        name: usedTemplateName,
+        reason: windowCheck.lastInboundAt ? 'window_expired' : 'no_conversation_history',
+      };
       
-      if (shouldSendTemplate) {
-        // Use template with button (first message of new window)
-        console.log('🧾 [Notification] Using template with button (first message of window).');
-        
-        usedTemplateSid = await ensureOrderButtonTemplateSid();
-        usedTemplateName = ORDER_NOTIFICATION_WITH_BUTTON;
+      metadataState.cachedMessage = {
+        text: trimmedText,
+        cachedAt: new Date().toISOString(),
+        purpose: 'view_order_details_response',
+        firstInWindow: true,
+      };
   
-        // Cache the original message text for later retrieval when user clicks button
-        metadataState.template = {
-          sid: usedTemplateSid,
-          name: usedTemplateName,
-          reason: windowCheck.lastInboundAt ? 'window_expired' : 'no_conversation_history',
-        };
-        
-        metadataState.cachedMessage = {
-          text: trimmedText,
-          cachedAt: new Date().toISOString(),
-          purpose: 'view_order_details_response',
-          firstInWindow: true,
-        };
+      await updateOutboundMessageChannel(
+        outboundLog?.id ?? null,
+        channel,
+        metadataState,
+        usedTemplateSid,
+        usedTemplateName
+      );
   
-        await updateOutboundMessageChannel(
-          outboundLog?.id ?? null,
-          channel,
-          metadataState,
-          usedTemplateSid,
-          usedTemplateName
-        );
+      const sendParams: any = {
+        from: fromAddress,
+        to: toAddress,
+        contentSid: usedTemplateSid,
+      };
   
-        const sendParams: any = {
-          from: fromAddress,
-          to: toAddress,
-          contentSid: usedTemplateSid,
-        };
-  
-        // Map variables to numbered format expected by Twilio
-        // If templateVariables provided, use them; otherwise use trimmedText as default
-        if (options.templateVariables && Object.keys(options.templateVariables).length > 0) {
-          // User provided variables - convert to numbered format if needed
-          const numberedVars: Record<string, any> = {};
-          Object.entries(options.templateVariables).forEach(([key, value], index) => {
-            // If key is already a number, use it; otherwise map by index
-            const varKey = /^\d+$/.test(key) ? key : String(index + 1);
-            numberedVars[varKey] = value;
-          });
-          sendParams.contentVariables = JSON.stringify(numberedVars);
-        } else {
-          // Default: assume single variable template with message text
-          sendParams.contentVariables = JSON.stringify({
-            "1": trimmedText
-          });
-        }
-  
-        console.log('🧾 [Notification] Template send params prepared.', {
-          contentSid: sendParams.contentSid,
+      // Map variables to numbered format expected by Twilio
+      // If templateVariables provided, use them; otherwise use trimmedText as default
+      if (options.templateVariables && Object.keys(options.templateVariables).length > 0) {
+        // User provided variables - convert to numbered format if needed
+        const numberedVars: Record<string, any> = {};
+        Object.entries(options.templateVariables).forEach(([key, value], index) => {
+          // If key is already a number, use it; otherwise map by index
+          const varKey = /^\d+$/.test(key) ? key : String(index + 1);
+          numberedVars[varKey] = value;
         });
+        sendParams.contentVariables = JSON.stringify(numberedVars);
+      } else {
+        // Default: assume single variable template with message text
+        sendParams.contentVariables = JSON.stringify({
+          "1": trimmedText
+        });
+      }
   
-        twilioResponse = await client.messages.create(sendParams);
+      console.log('🧾 [Notification] Template send params prepared.', {
+        contentSid: sendParams.contentSid,
+      });
   
-        console.log(`✅ [Notification] Sent as template message with "View Order Details" button.`);
-        
-        // Save message to MessageCache for button click retrieval
-        const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
-        const cacheEntry = await (prisma as any).messageCache?.create({
-          data: {
-            toPhone: standardizedRecipient,
-            fromPhone: fromNumber,
-            messageText: trimmedText,
-            templateName: usedTemplateName,
-            templateSid: usedTemplateSid,
-            outboundMessageId: outboundLog?.id ?? undefined,
-            expiresAt,
-            metadata: {
-              source: 'notification_api',
-              reason: windowCheck.lastInboundAt ? 'window_expired' : 'no_conversation_history',
-              waSid: twilioResponse.sid,
-            },
+      twilioResponse = await client.messages.create(sendParams);
+  
+      console.log(`✅ [Notification] Sent as template message with "View Order Details" button.`);
+      
+      // Save message to MessageCache for button click retrieval
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
+      const cacheEntry = await (prisma as any).messageCache?.create({
+        data: {
+          toPhone: standardizedRecipient,
+          fromPhone: fromNumber,
+          messageText: trimmedText,
+          templateName: usedTemplateName,
+          templateSid: usedTemplateSid,
+          outboundMessageId: outboundLog?.id ?? undefined,
+          expiresAt,
+          metadata: {
+            source: 'notification_api',
+            reason: windowCheck.lastInboundAt ? 'window_expired' : 'no_conversation_history',
+            waSid: twilioResponse.sid,
           },
-        });
-        if (cacheEntry) {
-          console.log(`📦 [MessageCache] Created cache entry ${cacheEntry.id} for template ${usedTemplateName}`);
-        } else {
-          console.warn('⚠️ [MessageCache] Prisma client has no messageCache model; skipped cache creation');
-        }
+        },
+      });
+      if (cacheEntry) {
+        console.log(`📦 [MessageCache] Created cache entry ${cacheEntry.id} for template ${usedTemplateName}`);
+      } else {
+        console.warn('⚠️ [MessageCache] Prisma client has no messageCache model; skipped cache creation');
       }
     }
   
-    // Ensure we have a Twilio response before proceeding
-    if (!twilioResponse || !twilioResponse.sid) {
-      throw new Error('Twilio response missing after send operation');
-    }
-
     const successMetadata = {
       ...metadataState,
       result: {
