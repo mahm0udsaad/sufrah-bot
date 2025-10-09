@@ -1155,20 +1155,17 @@ export async function sendNotification(
   const fromAddress = ensureWhatsAppAddress(fromNumber);
   const toAddress = ensureWhatsAppAddress(standardizedRecipient);
 
-  // Determine channel: forceFreeform for button clicks, otherwise ALWAYS use template
+  // Check database FIRST to determine channel (unless forceFreeform is set)
   let windowCheck: { withinWindow: boolean; lastInboundAt: Date | null };
   let channel: SendChannel;
   
   if (options.forceFreeform) {
-    // Button click response - send cached message as freeform (button opened 24h window)
-    console.log(`📤 [Notification] Force freeform mode enabled - sending cached message as freeform directly`);
+    console.log(`📤 [Notification] Force freeform mode enabled - sending as freeform message directly`);
     channel = 'freeform';
     windowCheck = { withinWindow: true, lastInboundAt: new Date() };
   } else {
-    // ALWAYS send template with button for initial messages (regardless of 24h window)
-    console.log(`📤 [Notification] Sending as template with button - user must click to view details`);
     windowCheck = await checkMessageWindow(standardizedRecipient);
-    channel = 'template'; // Always use template for non-button-click messages
+    channel = windowCheck.withinWindow ? 'freeform' : 'template';
   }
   let twilioResponse;
   let usedTemplateSid: string | undefined;
@@ -1180,14 +1177,12 @@ export async function sendNotification(
       fromPhone: fromNumber,
       initialChannel: channel,
       source: 'notification_api',
-      strategy: options.forceFreeform ? 'button_click_response' : 'template_first',
       attemptedAt: new Date().toISOString(),
     },
     sessionWindow: {
       lastInboundAt: windowCheck.lastInboundAt?.toISOString() ?? null,
       within24h: windowCheck.withinWindow,
       checkedAt: new Date().toISOString(),
-      note: options.forceFreeform ? 'Button click opened 24h window' : 'Using template-first strategy',
     },
   };
 
@@ -1205,17 +1200,18 @@ export async function sendNotification(
   let failureLogged = false;
 
   console.log(
-    `📤 [Notification] Sending to ${standardizedRecipient} via ${channel} channel (${options.forceFreeform ? 'button response' : 'template-first strategy'}).`
+    `📤 [Notification] Sending to ${standardizedRecipient} via ${channel} channel (based on DB check).`
   );
 
   try {
     if (channel === 'freeform') {
-      // Button click response - send cached message as freeform
+      // Within 24h window - send freeform
       twilioResponse = await sendFreeformMessage(client, fromAddress, toAddress, trimmedText);
-      console.log(`✅ [Notification] Sent cached message as freeform (button click opened 24h window).`);
+      console.log(`✅ [Notification] Sent as freeform message (within 24h window).`);
     } else {
-      // Template-first strategy: ALWAYS send template with button for initial messages
-      console.log('🧾 [Notification] Sending template with "View Order Details" button (template-first strategy).');
+      // Outside 24h window - must use template
+      // Always send a new template message (don't skip based on recent templates)
+      console.log('🧾 [Notification] Using template with button (outside 24h window).');
       
       usedTemplateSid = await ensureOrderButtonTemplateSid();
       usedTemplateName = ORDER_NOTIFICATION_WITH_BUTTON;
@@ -1224,15 +1220,14 @@ export async function sendNotification(
       metadataState.template = {
         sid: usedTemplateSid,
         name: usedTemplateName,
-        strategy: 'template_first',
-        reason: 'All messages use template-first strategy with button',
+        reason: windowCheck.lastInboundAt ? 'window_expired' : 'no_conversation_history',
       };
       
       metadataState.cachedMessage = {
         text: trimmedText,
         cachedAt: new Date().toISOString(),
         purpose: 'view_order_details_response',
-        deliveryMethod: 'button_click_freeform',
+        firstInWindow: true,
       };
   
       await updateOutboundMessageChannel(
@@ -1249,8 +1244,8 @@ export async function sendNotification(
         contentSid: usedTemplateSid,
       };
   
-      // Map variables to numbered format expected by Twilio
-      // If templateVariables provided, use them; otherwise use trimmedText as default
+      // Only add contentVariables if explicitly provided
+      // The button template has no variables - it's a static message
       if (options.templateVariables && Object.keys(options.templateVariables).length > 0) {
         // User provided variables - convert to numbered format if needed
         const numberedVars: Record<string, any> = {};
@@ -1260,12 +1255,10 @@ export async function sendNotification(
           numberedVars[varKey] = value;
         });
         sendParams.contentVariables = JSON.stringify(numberedVars);
-      } else {
-        // Default: assume single variable template with message text
-        sendParams.contentVariables = JSON.stringify({
-          "1": trimmedText
-        });
       }
+      // Note: We don't send the full text in the template
+      // The template shows: "You have a new order made on Sufrah! 🎉"
+      // The full text (trimmedText) is cached in MessageCache for button click retrieval
   
       console.log('🧾 [Notification] Template send params prepared.', {
         contentSid: sendParams.contentSid,
@@ -1273,7 +1266,7 @@ export async function sendNotification(
   
       twilioResponse = await client.messages.create(sendParams);
   
-      console.log(`✅ [Notification] Template sent with button. User must click "View Order Details" to see full message.`);
+      console.log(`✅ [Notification] Sent as template message with "View Order Details" button.`);
       
       // Save message to MessageCache for button click retrieval
       const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
@@ -1288,14 +1281,13 @@ export async function sendNotification(
           expiresAt,
           metadata: {
             source: 'notification_api',
-            strategy: 'template_first',
-            reason: 'All messages use template-first with button strategy',
+            reason: windowCheck.lastInboundAt ? 'window_expired' : 'no_conversation_history',
             waSid: twilioResponse.sid,
           },
         },
       });
       if (cacheEntry) {
-        console.log(`📦 [MessageCache] Cached full message (${trimmedText.length} chars) - will be delivered on button click`);
+        console.log(`📦 [MessageCache] Created cache entry ${cacheEntry.id} for template ${usedTemplateName}`);
       } else {
         console.warn('⚠️ [MessageCache] Prisma client has no messageCache model; skipped cache creation');
       }

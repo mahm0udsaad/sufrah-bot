@@ -1760,8 +1760,7 @@ const server = Bun.serve({
 
         try {
           getOrCreateConversation(normalizedId);
-          // Use sendNotification to handle 24h window automatically for manual dashboard messages
-          await sendNotification(normalizedId, messageText, { fromNumber: TWILIO_WHATSAPP_FROM });
+          await sendTextMessage(client, TWILIO_WHATSAPP_FROM, normalizedId, messageText);
           markConversationRead(normalizedId);
           setConversationData(normalizedId, { status: 'active', isBotActive: globalBotEnabled });
           const messages = getConversationMessages(normalizedId);
