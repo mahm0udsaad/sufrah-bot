@@ -12,6 +12,7 @@ import {
 import { calculateCartTotal, getCart, getOrderState } from '../state/orders';
 import { normalizePhoneNumber, standardizeWhatsappNumber } from '../utils/phone';
 import { sendTextMessage, sendContentMessage } from '../twilio/messaging';
+import { sendNotification } from './whatsapp';
 import { SUFRAH_API_BASE, SUFRAH_API_KEY, TWILIO_WHATSAPP_FROM, TWILIO_CONTENT_AUTH } from '../config';
 import { logWebhookRequest } from '../db/webhookService';
 import redis from '../redis/client';
@@ -515,7 +516,14 @@ export async function submitExternalOrder(
 
   const customerMessage = customerMessageLines.filter(Boolean).join('\n');
 
-  await sendTextMessage(twilioClient, senderNumber, sanitizedCustomerPhone, customerMessage);
+  // Use sendNotification instead of sendTextMessage to handle 24h window automatically
+  try {
+    await sendNotification(sanitizedCustomerPhone, customerMessage, { fromNumber: senderNumber });
+    console.log(`✅ [OrderSubmission] Order confirmation sent to ${sanitizedCustomerPhone}`);
+  } catch (error) {
+    console.error(`⚠️ [OrderSubmission] Failed to send order confirmation to ${sanitizedCustomerPhone}:`, error);
+    // Don't fail the entire order submission if notification fails
+  }
 
   // Send rating message via template content
   try {
