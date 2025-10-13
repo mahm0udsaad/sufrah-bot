@@ -130,6 +130,51 @@ export async function sendInteractiveMessage(
   }
 }
 
+export async function sendMediaMessage(
+  client: TwilioClient,
+  from: string,
+  to: string,
+  options: {
+    mediaUrls: string[];
+    caption?: string;
+    messageType?: MessageType;
+  }
+): Promise<{ message: any; messageType: Exclude<MessageType, 'text' | 'template' | 'interactive'> }> {
+  if (!options.mediaUrls.length) {
+    throw new Error('mediaUrls array must include at least one URL');
+  }
+
+  const fromAddress = ensureWhatsAppAddress(from);
+  const toAddress = ensureWhatsAppAddress(to);
+  const normalizedRecipient = normalizePhoneNumber(to);
+  const normalizedSender = normalizePhoneNumber(from);
+  const caption = options.caption?.trim();
+  const messageType =
+    pickMediaMessageType(options.messageType) ?? inferMessageType(options.mediaUrls[0]);
+
+  try {
+    const message = await client.messages.create({
+      from: fromAddress,
+      to: toAddress,
+      ...(caption ? { body: caption } : {}),
+      mediaUrl: options.mediaUrls,
+    });
+    console.log('✅ Media message sent:', message.sid);
+    appendMessageToConversation(normalizedRecipient, {
+      fromPhone: normalizedSender,
+      toPhone: normalizedRecipient,
+      messageType,
+      content: caption || `[media:${messageType}]`,
+      mediaUrl: options.mediaUrls[0] ?? null,
+      isFromCustomer: false,
+    });
+    return { message, messageType };
+  } catch (error) {
+    console.error('❌ Error sending media message:', error);
+    throw error;
+  }
+}
+
 export function appendOutboundMessage(
   to: string,
   messageType: MessageType,
@@ -146,4 +191,26 @@ export function appendOutboundMessage(
     mediaUrl: options.mediaUrl ?? null,
     isFromCustomer: false,
   });
+}
+
+function inferMessageType(url: string): Exclude<MessageType, 'text' | 'template' | 'interactive'> {
+  const normalized = url.toLowerCase();
+  if (/\.(png|jpe?g|gif|webp|heic|heif|bmp)$/.test(normalized)) {
+    return 'image';
+  }
+  if (/(\.mp4|\.mov|\.m4v|\.webm)$/.test(normalized)) {
+    return 'video';
+  }
+  if (/(\.mp3|\.wav|\.m4a|\.aac|\.ogg|\.opus)$/.test(normalized)) {
+    return 'audio';
+  }
+  return 'document';
+}
+
+function pickMediaMessageType(type?: MessageType): Exclude<MessageType, 'text' | 'template' | 'interactive'> | undefined {
+  if (!type) return undefined;
+  if (type === 'image' || type === 'document' || type === 'audio' || type === 'video') {
+    return type;
+  }
+  return undefined;
 }

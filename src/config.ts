@@ -40,6 +40,9 @@ export const SUFRAH_API_KEY = `ApiToken ${process.env.SUFRAH_API_KEY}` || '';
 export const SUFRAH_CACHE_TTL_MS = Number(process.env.SUFRAH_CACHE_TTL_MS || 180_000);
 // Auth
 export const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
+export const DASHBOARD_PAT = process.env.DASHBOARD_PAT || '';
+export const BOT_API_TOKEN = process.env.BOT_API_TOKEN || '';
+export const BOT_API_KEY = process.env.BOT_API_KEY || '';
 
 // Rate limiting
 export const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60000);

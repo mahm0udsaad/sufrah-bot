@@ -14,6 +14,7 @@ export const redis = new Redis({
   retryStrategy(times) {
     return Math.min(times * 50, 2000);
   },
+  lazyConnect: false, // Auto-connect on instantiation (default behavior)
 });
 
 redis.on('connect', () => {
@@ -24,10 +25,8 @@ redis.on('error', (err) => {
   console.error('❌ Redis connection error:', err);
 });
 
-// Connect immediately
-redis.connect().catch((err) => {
-  console.error('❌ Failed to connect to Redis:', err);
-});
+// Remove the manual connect() call - ioredis connects automatically
+// redis.connect() ❌ This is causing the error
 
 // Graceful shutdown
 let closing = false;

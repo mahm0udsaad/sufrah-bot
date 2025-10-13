@@ -4,6 +4,12 @@
 
 The `/api/whatsapp/send` endpoint is a standalone notification API that automatically handles WhatsApp's 24-hour messaging window. It requires only a phone number and message text - no database or restaurant tracking needed. Perfect for sending notifications to restaurant owners about new orders.
 
+curl -X POST "https://2eabb18cadc5.ngrok-free.app/api/whatsapp/send"\
+  -H "Authorization: Bearer sufrah_bot_0f3c9e7d4b82e19a56e2a1f3d9b8c4aa" \
+  -H "Content-Type: application/json" \
+  -d '{"phoneNumber":"+966562897103","text":"Hello"}'
+
+
 ## 24-Hour Messaging Window
 
 WhatsApp Business API enforces a 24-hour messaging window:

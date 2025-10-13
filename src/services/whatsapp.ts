@@ -48,23 +48,12 @@ const NOTIFICATION_TEMPLATE_NAME = 'restaurant_notification';
 const ORDER_NOTIFICATION_WITH_BUTTON = 'sufrah_new_order_alert';
 const CONTENT_BASE_URL = 'https://content.twilio.com/v1/Content';
 
-let sharedTwilioClient: TwilioClient | null = null;
 let cachedTemplateSid: string | null = null;
 let cachedNotificationTemplateSid: string | null = null;
 let cachedOrderButtonTemplateSid: string | null = null;
 let ensureTemplatePromise: Promise<string> | null = null;
 let ensureNotificationTemplatePromise: Promise<string> | null = null;
 let ensureOrderButtonTemplatePromise: Promise<string> | null = null;
-
-function getTwilioClient(): TwilioClient {
-  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
-    throw new Error('Twilio credentials are not configured.');
-  }
-  if (!sharedTwilioClient) {
-    sharedTwilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-  }
-  return sharedTwilioClient;
-}
 
 function getContentAuthHeader(): string {
   if (TWILIO_API_KEY && TWILIO_API_SECRET) {
@@ -422,6 +411,7 @@ async function determineChannel(
 }
 
 export async function notifyRestaurantOrder(
+  client: TwilioClient,
   restaurantId: string,
   orderText: string,
   options: NotifyRestaurantOrderOptions = {}
@@ -471,7 +461,6 @@ export async function notifyRestaurantOrder(
     restaurant.name || undefined
   );
 
-  const client = getTwilioClient();
   const fromAddress = ensureWhatsAppAddress(fromNumber);
   const toAddress = ensureWhatsAppAddress(standardizedRecipient);
 
@@ -615,6 +604,7 @@ export async function notifyRestaurantOrder(
  * and template fallback for use by API endpoints
  */
 export async function sendWhatsAppMessage(
+  client: TwilioClient,
   restaurantId: string,
   toPhoneNumber: string,
   messageText: string,
@@ -659,7 +649,6 @@ export async function sendWhatsAppMessage(
     undefined
   );
 
-  const client = getTwilioClient();
   const fromAddress = ensureWhatsAppAddress(fromNumber);
   const toAddress = ensureWhatsAppAddress(standardizedRecipient);
 
@@ -1128,6 +1117,7 @@ export async function consumeCachedMessageForPhone(phoneNumber: string): Promise
  * Checks database first to determine if within 24h window
  */
 export async function sendNotification(
+  client: TwilioClient,
   toPhoneNumber: string,
   messageText: string,
   options: {
@@ -1151,7 +1141,6 @@ export async function sendNotification(
     throw new Error(`Invalid phone number: ${toPhoneNumber}`);
   }
 
-  const client = getTwilioClient();
   const fromAddress = ensureWhatsAppAddress(fromNumber);
   const toAddress = ensureWhatsAppAddress(standardizedRecipient);
 

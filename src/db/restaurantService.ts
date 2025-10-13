@@ -1,5 +1,6 @@
 import { prisma } from './client';
 import type { RestaurantBot } from '@prisma/client';
+import { standardizeWhatsappNumber } from '../utils/phone';
 
 /**
  * Lookup RestaurantBot by WhatsApp "To" number
@@ -7,10 +8,31 @@ import type { RestaurantBot } from '@prisma/client';
  */
 export async function findRestaurantByWhatsAppNumber(
   whatsappFrom: string
-): Promise<RestaurantBot | null> {
-  return prisma.restaurantBot.findUnique({
-    where: { whatsappFrom, isActive: true },
+): Promise<(RestaurantBot & { restaurant?: any | null }) | null> {
+  const normalized = standardizeWhatsappNumber(whatsappFrom);
+  if (!normalized) {
+    return null;
+  }
+
+  const bot = await (prisma as any).restaurantBot?.findFirst?.({
+    where: {
+      whatsappNumber: normalized,
+      isActive: true,
+    },
+    include: {
+      restaurant: true,
+    },
   });
+
+  if (bot) {
+    return {
+      ...bot,
+      restaurantId: bot.restaurantId ?? bot.restaurant?.id ?? bot.id,
+      name: bot.name ?? bot.restaurantName ?? bot.restaurant?.name ?? 'Restaurant',
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -62,4 +84,3 @@ export async function listActiveRestaurants(): Promise<RestaurantBot[]> {
     orderBy: { createdAt: 'desc' },
   });
 }
-

@@ -1,6 +1,7 @@
 import type { TwilioClient, CartItem } from '../types';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../db/client';
+import { findOrCreateConversation } from '../db/conversationService';
 import { fetchMerchantBranches } from './sufrahApi';
 import {
   getConversationSession,
@@ -18,6 +19,7 @@ import redis from '../redis/client';
 import { getCachedContentSid } from '../workflows/cache';
 import { createRatingListContent } from '../workflows/ratingTemplates';
 import { notifyRestaurantOrder } from './whatsapp';
+import { eventBus } from '../redis/eventBus';
 
 export type OrderSubmissionErrorCode =
   | 'CONFIG_MISSING'
@@ -446,6 +448,13 @@ export async function submitExternalOrder(
   const branchPhone = branchDetails.phoneNumber;
   const branchName = branchDetails.name || session?.branchName || state.branchName || undefined;
 
+  // Ensure conversation exists before creating order
+  const conversation = await findOrCreateConversation(
+    restaurant.id,
+    normalizedConversationId,
+    customerName || undefined
+  );
+
   try {
     const metaValue = JSON.parse(
       JSON.stringify({
@@ -463,10 +472,10 @@ export async function submitExternalOrder(
       })
     );
 
-    await prisma.order.create({
+    const createdOrder = await prisma.order.create({
       data: {
         restaurantId: restaurant.id,
-        conversationId: normalizedConversationId,
+        conversationId: conversation.id,
         orderReference: state.orderReference ?? null,
         orderType,
         paymentMethod,
@@ -479,8 +488,58 @@ export async function submitExternalOrder(
         branchName: branchName ?? null,
         branchAddress: state.branchAddress ?? null,
         meta: metaValue as unknown as Prisma.InputJsonValue,
+        status: 'CONFIRMED', // Mark as confirmed since it's submitted to Sufrah
       },
     });
+
+    // Create OrderItem records for each item in the order
+    let orderItems: any[] = [];
+    if (sessionItems.length > 0) {
+      orderItems = sessionItems.map((item) => {
+        const itemTotal = roundToTwo(item.unitPrice * item.quantity);
+        const addonsTotal = (item.addons || []).reduce((sum, addon) => {
+          return sum + roundToTwo(addon.price * addon.quantity);
+        }, 0);
+        const grandItemTotal = roundToTwo(itemTotal + addonsTotal);
+
+        return {
+          id: `${createdOrder.id}-${item.productId}`,
+          orderId: createdOrder.id,
+          name: item.name,
+          qty: item.quantity,
+          unitCents: Math.round(item.unitPrice * 100),
+          totalCents: Math.round(grandItemTotal * 100),
+        };
+      });
+
+      await prisma.orderItem.createMany({
+        data: orderItems,
+        skipDuplicates: true,
+      });
+
+      console.log(`📦 [OrderSubmission] Created ${orderItems.length} order items for order ${createdOrder.id}`);
+    }
+
+    // Publish order event to Redis for real-time dashboard updates
+    try {
+      await eventBus.publishOrder(restaurant.id, {
+        type: 'order.created',
+        order: {
+          id: createdOrder.id,
+          orderReference: orderNumber.toString(),
+          status: createdOrder.status,
+          orderType: createdOrder.orderType,
+          paymentMethod: createdOrder.paymentMethod,
+          totalCents: createdOrder.totalCents,
+          currency: createdOrder.currency,
+          createdAt: createdOrder.createdAt,
+          items: orderItems,
+        },
+      });
+      console.log(`📡 [OrderSubmission] Published order.created event for order ${createdOrder.id}`);
+    } catch (eventError) {
+      console.error('⚠️ [OrderSubmission] Failed to publish order event:', eventError);
+    }
   } catch (error) {
     console.error('⚠️ [OrderSubmission] Failed to persist order locally:', error);
   }
@@ -614,7 +673,7 @@ export async function submitExternalOrder(
         .filter(Boolean)
         .join('\n');
 
-      await notifyRestaurantOrder(restaurant.id, branchMessage, {
+      await notifyRestaurantOrder(twilioClient, restaurant.id, branchMessage, {
         toNumber: branchPhone,
         fromNumber: senderNumber,
       });

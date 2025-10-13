@@ -9,38 +9,49 @@ datasource db {
 }
 
 model RestaurantBot {
-  id                 String   @id @default(cuid())
-  name               String
-  whatsappFrom       String   @unique
-  twilioAccountSid   String
-  twilioAuthToken    String
-  restaurantName     String
-  twilioSubaccountSid String?
-  supportContact     String?
-  paymentLink        String?
-  isActive           Boolean  @default(true)
-  maxMessagesPerMin  Int      @default(60) @map("max_messages_per_min")
-  maxMessagesPerDay  Int      @default(1000) @map("max_messages_per_day")
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                String      @id @default(cuid())
+  restaurantId      String?     @unique @map("restaurant_id")
+  name              String
+  restaurantName    String      @map("restaurantName")
+  whatsappNumber    String      @unique @map("whatsappFrom")
+  accountSid        String      @map("twilioAccountSid")
+  subaccountSid     String?     @map("twilioSubaccountSid")
+  authToken         String      @map("twilioAuthToken")
+  wabaId            String?     @map("waba_id")
+  senderSid         String?     @map("sender_sid")
+  verificationSid   String?     @map("verification_sid")
+  status            BotStatus   @default(PENDING) @map("status")
+  verifiedAt        DateTime?   @map("verified_at")
+  errorMessage      String?     @map("error_message")
+  supportContact    String?     @map("supportContact")
+  paymentLink       String?     @map("paymentLink")
+  isActive          Boolean     @default(true) @map("isActive")
+  maxMessagesPerMin Int         @default(60) @map("max_messages_per_min")
+  maxMessagesPerDay Int         @default(1000) @map("max_messages_per_day")
+  createdAt         DateTime    @default(now()) @map("createdAt")
+  updatedAt         DateTime    @updatedAt @map("updatedAt")
+  restaurant        Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
+  @@index([restaurantId])
+  @@index([whatsappNumber])
+  @@index([subaccountSid])
   @@map("RestaurantBot")
 }
 
 model Conversation {
-  id             String              @id @default(cuid())
-  restaurantId   String              @map("restaurant_id")
-  customerWa     String              @map("customer_wa")
-  customerName   String?             @map("customer_name")
-  status         ConversationStatus  @default(active)
-  lastMessageAt  DateTime            @map("last_message_at")
-  unreadCount    Int                 @default(0) @map("unread_count")
-  isBotActive    Boolean             @default(true) @map("is_bot_active")
-  createdAt      DateTime            @default(now()) @map("created_at")
-  updatedAt      DateTime            @updatedAt @map("updated_at")
-  restaurant     Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  messages       Message[]
-  orders         Order[]
+  id               String             @id @default(cuid())
+  restaurantId     String             @map("restaurant_id")
+  customerWa       String             @map("customer_wa")
+  customerName     String?            @map("customer_name")
+  status           ConversationStatus @default(active)
+  lastMessageAt    DateTime           @map("last_message_at")
+  unreadCount      Int                @default(0) @map("unread_count")
+  isBotActive      Boolean            @default(true) @map("is_bot_active")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  restaurant       Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  messages         Message[]
+  orders           Order[]
   outboundMessages OutboundMessage[]
 
   @@unique([restaurantId, customerWa])
@@ -50,16 +61,16 @@ model Conversation {
 }
 
 model Message {
-  id             String      @id @default(cuid())
-  restaurantId   String      @map("restaurant_id")
-  conversationId String      @map("conversation_id")
+  id             String       @id @default(cuid())
+  restaurantId   String       @map("restaurant_id")
+  conversationId String       @map("conversation_id")
   direction      MsgDir
-  waSid          String?     @unique @map("wa_sid")
-  messageType    String      @map("message_type")
-  content        String      @map("body")
-  mediaUrl       String?     @map("media_url")
-  metadata       Json?       @map("metadata")
-  createdAt      DateTime    @default(now()) @map("created_at")
+  waSid          String?      @unique @map("wa_sid")
+  messageType    String       @map("message_type")
+  content        String       @map("body")
+  mediaUrl       String?      @map("media_url")
+  metadata       Json?        @map("metadata")
+  createdAt      DateTime     @default(now()) @map("created_at")
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   restaurant     Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
@@ -150,55 +161,59 @@ model Order {
 }
 
 model Restaurant {
-  id                 String        @id
-  userId             String        @unique @map("user_id")
+  id                 String            @id
+  userId             String            @unique @map("user_id")
   name               String
   description        String?
   address            String?
   phone              String?
-  whatsappNumber     String?       @map("whatsapp_number")
-  logoUrl            String?       @map("logo_url")
-  isActive           Boolean       @default(true) @map("is_active")
-  createdAt          DateTime      @default(now()) @map("created_at")
-  updatedAt          DateTime      @map("updated_at")
-  externalMerchantId String?       @map("external_merchant_id")
+  whatsappNumber     String?           @map("whatsapp_number")
+  logoUrl            String?           @map("logo_url")
+  isActive           Boolean           @default(true) @map("is_active")
+  twilioAccountSid   String?           @map("twilio_account_sid")
+  twilioAuthToken    String?           @map("twilio_auth_token")
+  status             OnboardingStatus  @default(PENDING_APPROVAL)
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @map("updated_at")
+  externalMerchantId String?           @map("external_merchant_id")
   conversations      Conversation[]
   messages           Message[]
   orders             Order[]
   outboundMessages   OutboundMessage[]
-  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   usageLogs          UsageLog[]
   webhookLogs        WebhookLog[]
+  bots               RestaurantBot[]
 
   @@index([userId])
   @@map("RestaurantProfile")
 }
 
 model OrderItem {
-  id        String @id
-  orderId   String @map("order_id")
-  name      String
-  qty       Int    @map("qty")
-  unitCents Int    @map("unit_cents")
-  totalCents Int   @map("total_cents")
-  order     Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id         String @id
+  orderId    String @map("order_id")
+  name       String
+  qty        Int    @map("qty")
+  unitCents  Int    @map("unit_cents")
+  totalCents Int    @map("total_cents")
+  order      Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
   @@map("OrderItem")
 }
 
 model WebhookLog {
-  id            String     @id @default(cuid())
-  restaurantId  String?    @map("restaurant_id")
-  requestId     String     @map("request_id")
-  method        String
-  path          String
-  headers       Json?
-  body          Json?
-  statusCode    Int?       @map("status_code")
-  errorMessage  String?    @map("error_message")
-  createdAt     DateTime   @default(now()) @map("created_at")
-  restaurant    Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  id           String      @id @default(cuid())
+  restaurantId String?     @map("restaurant_id")
+  requestId    String      @map("request_id")
+  method       String
+  path         String
+  headers      Json?
+  body         Json?
+  statusCode   Int?        @map("status_code")
+  errorMessage String?     @map("error_message")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  restaurant   Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
   @@index([restaurantId])
   @@map("WebhookLog")
@@ -228,7 +243,7 @@ model Template {
 }
 
 model UsageLog {
-  id                String     @id
+  id                String     @id @default(cuid())
   restaurant_id     String
   action            String
   details           Json?      @default("{}")
@@ -236,6 +251,23 @@ model UsageLog {
   RestaurantProfile Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade)
 
   @@index([restaurant_id])
+}
+
+model File {
+  id        String   @id @default(cuid())
+  userId    String?  @map("user_id")
+  fileName  String   @map("file_name")
+  mimeType  String   @map("mime_type")
+  fileSize  Int      @map("file_size")
+  url       String
+  bucket    String?
+  objectKey String?  @map("object_key")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("File")
 }
 
 model User {
@@ -250,6 +282,13 @@ model User {
   updated_at              DateTime
   RestaurantProfile       Restaurant?
   Template                Template[]
+  files                   File[]
+}
+
+enum OnboardingStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  REJECTED
 }
 
 enum BotStatus {

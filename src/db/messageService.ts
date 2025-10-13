@@ -32,9 +32,21 @@ export async function createInboundMessage(data: {
     return null;
   }
 
+  const { fromPhone, toPhone, metadata, mediaUrl, ...rest } = data;
+  const mergedMeta = {
+    ...(metadata ?? {}),
+    fromPhone,
+    toPhone,
+  };
+  const cleanedMeta = Object.fromEntries(
+    Object.entries(mergedMeta).filter(([, value]) => value !== undefined && value !== null)
+  );
+
   return prisma.message.create({
     data: {
-      ...data,
+      ...rest,
+      mediaUrl: mediaUrl ?? null,
+      metadata: Object.keys(cleanedMeta).length ? cleanedMeta : undefined,
       direction: 'IN',
     },
   });
@@ -54,9 +66,21 @@ export async function createOutboundMessage(data: {
   mediaUrl?: string;
   metadata?: any;
 }): Promise<Message> {
+  const { fromPhone, toPhone, metadata, mediaUrl, ...rest } = data;
+  const mergedMeta = {
+    ...(metadata ?? {}),
+    fromPhone,
+    toPhone,
+  };
+  const cleanedMeta = Object.fromEntries(
+    Object.entries(mergedMeta).filter(([, value]) => value !== undefined && value !== null)
+  );
+
   return prisma.message.create({
     data: {
-      ...data,
+      ...rest,
+      mediaUrl: mediaUrl ?? null,
+      metadata: Object.keys(cleanedMeta).length ? cleanedMeta : undefined,
       direction: 'OUT',
     },
   });
@@ -112,4 +136,3 @@ export async function getRecentMessages(
     take: limit,
   });
 }
-

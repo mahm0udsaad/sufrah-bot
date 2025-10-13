@@ -14,6 +14,8 @@ import { checkRestaurantRateLimit, checkCustomerRateLimit } from '../utils/rateL
 import { validateTwilioSignature, extractTwilioSignature } from '../utils/twilioSignature';
 import { normalizePhoneNumber } from '../utils/phone';
 import { consumeCachedMessageForPhone, sendNotification } from '../services/whatsapp';
+import { TwilioClientManager } from '../twilio/clientManager';
+import { processMessage } from '../handlers/processMessage';
 
 export interface InboundWebhookPayload {
   From: string; // Customer WhatsApp number
@@ -73,12 +75,36 @@ export async function processInboundWebhook(
       return { success: false, error: 'Restaurant not found', statusCode: 404 };
     }
 
-    console.log(`📍 Routed to restaurant: ${restaurant.name} (${restaurant.id})`);
+    const restaurantName =
+      restaurant.name ??
+      (restaurant as any).restaurantName ??
+      (restaurant as any).restaurant?.name ??
+      'Restaurant';
+
+    console.log(`📍 Routed to restaurant: ${restaurantName} (${restaurant.id})`);
+    // Prepare Twilio client for outbound replies
+    const clientManager = new TwilioClientManager();
+    const twilioClient = await clientManager.getClient(restaurant.id);
+    if (!twilioClient) {
+      console.error(`❌ Twilio client not available for restaurant ${restaurant.id}`);
+      return { success: false, error: 'Twilio client unavailable', statusCode: 500 };
+    }
+
+    const restaurantProfileId =
+      restaurant.restaurantId ??
+      (restaurant as any).restaurant?.id ??
+      restaurant.id;
+
+    const twilioAuthToken =
+      (restaurant as any).twilioAuthToken ??
+      restaurant.authToken ??
+      (restaurant as any).restaurant?.twilioAuthToken ??
+      '';
 
     // Step 2: Validate Twilio signature
-    if (signature) {
+    if (signature && twilioAuthToken) {
       const isValid = validateTwilioSignature(
-        restaurant.twilioAuthToken,
+        twilioAuthToken,
         signature,
         requestUrl,
         payload
@@ -86,7 +112,7 @@ export async function processInboundWebhook(
       if (!isValid) {
         console.warn(`⚠️ Invalid Twilio signature for restaurant ${restaurant.id}`);
         await logWebhookRequest({
-          restaurantId: restaurant.id,
+          restaurantId: restaurantProfileId,
           requestId,
           method: 'POST',
           path: '/whatsapp/webhook',
@@ -96,6 +122,10 @@ export async function processInboundWebhook(
         });
         return { success: false, error: 'Invalid signature', statusCode: 403 };
       }
+    } else if (signature && !twilioAuthToken) {
+      console.warn(
+        `⚠️ Twilio auth token unavailable for restaurant ${restaurant.id}; skipping signature validation`
+      );
     }
 
     // Step 3: Idempotency check - prevent duplicate processing
@@ -128,7 +158,7 @@ export async function processInboundWebhook(
     if (!restaurantLimit.allowed) {
       console.warn(`⚠️ Restaurant ${restaurant.id} rate limit exceeded`);
       await logWebhookRequest({
-        restaurantId: restaurant.id,
+        restaurantId: restaurantProfileId,
         requestId,
         method: 'POST',
         path: '/whatsapp/webhook',
@@ -147,7 +177,7 @@ export async function processInboundWebhook(
 
     // Step 5: Find or create conversation
     const conversation = await findOrCreateConversation(
-      restaurant.id,
+      restaurantProfileId,
       customerPhone,
       ProfileName
     );
@@ -169,7 +199,7 @@ export async function processInboundWebhook(
       try {
         await createInboundMessage({
           conversationId: conversation.id,
-          restaurantId: restaurant.id,
+          restaurantId: restaurantProfileId,
           waSid: MessageSid,
           fromPhone: customerPhone,
           toPhone: normalizePhoneNumber(To),
@@ -191,10 +221,10 @@ export async function processInboundWebhook(
         console.log(`📤 [ButtonClick] Sending cached order details to ${From} (freeform - button opened 24h window)`);
         try {
           // Button click opens 24h window - force freeform sending
-          await sendNotification(From, cachedMessage, { fromNumber: To, forceFreeform: true });
+          await sendNotification(twilioClient, From, cachedMessage, { fromNumber: To, forceFreeform: true });
           console.log(`✅ [ButtonClick] Successfully sent cached message to ${From}`);
           await logWebhookRequest({
-            restaurantId: restaurant.id,
+            restaurantId: restaurantProfileId,
             requestId,
             method: 'POST',
             path: '/whatsapp/webhook',
@@ -205,7 +235,7 @@ export async function processInboundWebhook(
         } catch (error: any) {
           console.error(`❌ [ButtonClick] Failed to send cached message to ${From}:`, error);
           await logWebhookRequest({
-            restaurantId: restaurant.id,
+            restaurantId: restaurantProfileId,
             requestId,
             method: 'POST',
             path: '/whatsapp/webhook',
@@ -219,12 +249,12 @@ export async function processInboundWebhook(
         console.warn(`⚠️ [ButtonClick] No cached message found for ${From}`);
         try {
           // Send fallback as freeform (button click opened 24h window)
-          await sendNotification(From, 'Sorry, order details are no longer available. Please contact support.', { fromNumber: To, forceFreeform: true });
+          await sendNotification(twilioClient, From, 'Sorry, order details are no longer available. Please contact support.', { fromNumber: To, forceFreeform: true });
         } catch (error) {
           console.error(`❌ [ButtonClick] Failed to send fallback message:`, error);
         }
         await logWebhookRequest({
-          restaurantId: restaurant.id,
+          restaurantId: restaurantProfileId,
           requestId,
           method: 'POST',
           path: '/whatsapp/webhook',
@@ -234,6 +264,14 @@ export async function processInboundWebhook(
         });
         return { success: false, restaurantId: restaurant.id, error: 'No cached message found', statusCode: 404 };
       }
+    }
+
+    if (isButtonResponse && !isViewOrderRequest) {
+      messageType = 'interactive';
+      content = ButtonPayload || Body || ButtonText || content;
+      metadata.buttonPayload = ButtonPayload;
+      metadata.buttonText = ButtonText;
+      metadata.isButtonResponse = true;
     }
 
     // Handle location messages
@@ -257,7 +295,7 @@ export async function processInboundWebhook(
     // Step 7: Persist message to database
     const message = await createInboundMessage({
       conversationId: conversation.id,
-      restaurantId: restaurant.id,
+      restaurantId: restaurantProfileId,
       waSid: MessageSid,
       fromPhone: customerPhone,
       toPhone: normalizePhoneNumber(To),
@@ -304,9 +342,30 @@ export async function processInboundWebhook(
       console.log(`🔘 [ButtonResponse] Skipping event bus publish for button response`);
     }
 
-    // Step 10: Log webhook for audit
+    // Step 10: Trigger bot automation (fire-and-wait)
+    const automationPayload: Record<string, any> = {
+      profileName: ProfileName,
+      recipientPhone: To,
+    };
+    if (metadata.location) {
+      automationPayload.location = metadata.location;
+    }
+    if (mediaUrl) {
+      automationPayload.mediaUrl = mediaUrl;
+    }
+    if (isButtonResponse && !isViewOrderRequest) {
+      automationPayload.buttonPayload = ButtonPayload;
+      automationPayload.buttonText = ButtonText;
+    }
+    try {
+      await processMessage(customerPhone, content, messageType, automationPayload);
+    } catch (automationError) {
+      console.error('❌ Failed to run bot automation:', automationError);
+    }
+
+    // Step 11: Log webhook for audit
     await logWebhookRequest({
-      restaurantId: restaurant.id,
+      restaurantId: restaurantProfileId,
       requestId,
       method: 'POST',
       path: '/whatsapp/webhook',
@@ -345,4 +404,3 @@ export async function processInboundWebhook(
     };
   }
 }
-

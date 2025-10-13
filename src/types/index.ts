@@ -51,7 +51,14 @@ export interface OrderState {
   customerName?: string;
 }
 
-export type MessageType = 'text' | 'image' | 'document' | 'audio' | 'template' | 'interactive';
+export type MessageType =
+  | 'text'
+  | 'image'
+  | 'document'
+  | 'audio'
+  | 'video'
+  | 'template'
+  | 'interactive';
 
 export interface StoredMessage {
   id: string;

@@ -44,6 +44,15 @@ export async function findOrCreateConversation(
 }
 
 /**
+ * Get conversation by customer WA phone number.
+ */
+export async function getConversation(customerWa: string): Promise<Conversation | null> {
+  return prisma.conversation.findFirst({
+    where: { customerWa },
+  });
+}
+
+/**
  * Get conversation by ID
  */
 export async function getConversationById(id: string): Promise<Conversation | null> {
