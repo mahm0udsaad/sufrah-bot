@@ -82,18 +82,21 @@ export async function processInboundWebhook(
       'Restaurant';
 
     console.log(`📍 Routed to restaurant: ${restaurantName} (${restaurant.id})`);
-    // Prepare Twilio client for outbound replies
-    const clientManager = new TwilioClientManager();
-    const twilioClient = await clientManager.getClient(restaurant.id);
-    if (!twilioClient) {
-      console.error(`❌ Twilio client not available for restaurant ${restaurant.id}`);
-      return { success: false, error: 'Twilio client unavailable', statusCode: 500 };
-    }
 
+    // Resolve the RestaurantProfile id (tenant id) early
     const restaurantProfileId =
       restaurant.restaurantId ??
       (restaurant as any).restaurant?.id ??
       restaurant.id;
+
+    // Prepare Twilio client for outbound replies
+    const clientManager = new TwilioClientManager();
+    const twilioClient = await clientManager.getClient(restaurantProfileId);
+    if (!twilioClient) {
+      console.error(`❌ Twilio client not available for restaurant ${restaurantProfileId}`);
+      return { success: false, error: 'Twilio client unavailable', statusCode: 500 };
+    }
+
 
     const twilioAuthToken =
       (restaurant as any).twilioAuthToken ??
@@ -110,7 +113,7 @@ export async function processInboundWebhook(
         payload
       );
       if (!isValid) {
-        console.warn(`⚠️ Invalid Twilio signature for restaurant ${restaurant.id}`);
+        console.warn(`⚠️ Invalid Twilio signature for restaurant ${restaurantProfileId}`);
         await logWebhookRequest({
           restaurantId: restaurantProfileId,
           requestId,
@@ -124,7 +127,7 @@ export async function processInboundWebhook(
       }
     } else if (signature && !twilioAuthToken) {
       console.warn(
-        `⚠️ Twilio auth token unavailable for restaurant ${restaurant.id}; skipping signature validation`
+        `⚠️ Twilio auth token unavailable for restaurant ${restaurantProfileId}; skipping signature validation`
       );
     }
 
@@ -135,7 +138,7 @@ export async function processInboundWebhook(
         console.log(`⏭️ Duplicate webhook detected (MessageSid: ${MessageSid}), skipping`);
         return {
           success: true,
-          restaurantId: restaurant.id,
+          restaurantId: restaurantProfileId,
           statusCode: 200,
         };
       }
@@ -144,7 +147,7 @@ export async function processInboundWebhook(
       const acquired = await tryAcquireIdempotencyLock(`msg:${MessageSid}`);
       if (!acquired) {
         console.log(`⏭️ Message ${MessageSid} is being processed by another worker`);
-        return { success: true, restaurantId: restaurant.id, statusCode: 200 };
+        return { success: true, restaurantId: restaurantProfileId, statusCode: 200 };
       }
     }
 
@@ -152,11 +155,11 @@ export async function processInboundWebhook(
     const customerPhone = normalizePhoneNumber(From);
 
     const restaurantLimit = await checkRestaurantRateLimit(
-      restaurant.id,
+      restaurantProfileId,
       restaurant.maxMessagesPerMin
     );
     if (!restaurantLimit.allowed) {
-      console.warn(`⚠️ Restaurant ${restaurant.id} rate limit exceeded`);
+      console.warn(`⚠️ Restaurant ${restaurantProfileId} rate limit exceeded`);
       await logWebhookRequest({
         restaurantId: restaurantProfileId,
         requestId,
@@ -169,9 +172,9 @@ export async function processInboundWebhook(
       return { success: false, error: 'Rate limit exceeded', statusCode: 429 };
     }
 
-    const customerLimit = await checkCustomerRateLimit(restaurant.id, customerPhone);
+    const customerLimit = await checkCustomerRateLimit(restaurantProfileId, customerPhone);
     if (!customerLimit.allowed) {
-      console.warn(`⚠️ Customer ${customerPhone} rate limit exceeded for restaurant ${restaurant.id}`);
+      console.warn(`⚠️ Customer ${customerPhone} rate limit exceeded for restaurant ${restaurantProfileId}`);
       return { success: false, error: 'Customer rate limit exceeded', statusCode: 429 };
     }
 
@@ -320,7 +323,7 @@ export async function processInboundWebhook(
 
     // Step 9: Publish real-time event to dashboard (skip if button response)
     if (!isButtonResponse) {
-      await eventBus.publishMessage(restaurant.id, {
+      await eventBus.publishMessage(restaurantProfileId, {
         type: 'message.received',
         message: {
           id: message.id,
@@ -375,7 +378,7 @@ export async function processInboundWebhook(
 
     return {
       success: true,
-      restaurantId: restaurant.id,
+      restaurantId: restaurantProfileId,
       conversationId: conversation.id,
       messageId: message.id,
       statusCode: 200,
