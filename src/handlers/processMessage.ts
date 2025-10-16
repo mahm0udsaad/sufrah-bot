@@ -21,6 +21,7 @@ import {
   type BranchOption,
 } from '../workflows/menuData';
 import { getRestaurantByWhatsapp, type SufrahRestaurant } from '../db/sufrahRestaurantService';
+import { findRestaurantByWhatsAppNumber } from '../db/restaurantService';
 import {
   createOrderTypeQuickReply,
   createFoodListPicker,
@@ -534,18 +535,34 @@ export async function resolveRestaurantContext(
   }
 
   try {
+    // Try Sufrah lookup first (requires externalMerchantId)
     const restaurant = await getRestaurantByWhatsapp(standardizedRecipient);
-    if (!restaurant) {
-      return null;
+    if (restaurant) {
+      const normalizedRestaurant: SufrahRestaurant = {
+        ...restaurant,
+        whatsappNumber: standardizeWhatsappNumber(restaurant.whatsappNumber),
+      };
+
+      updateOrderState(phoneNumber, { restaurant: normalizedRestaurant });
+      return normalizedRestaurant;
     }
 
-    const normalizedRestaurant: SufrahRestaurant = {
-      ...restaurant,
-      whatsappNumber: standardizeWhatsappNumber(restaurant.whatsappNumber),
-    };
+    // Fallback: derive context from linked RestaurantBot (for non-Sufrah tenants)
+    const bot = await findRestaurantByWhatsAppNumber(standardizedRecipient);
+    if (bot && bot.restaurantId) {
+      console.log(`ℹ️ Creating synthetic restaurant context from bot ${bot.id} for tenant ${bot.restaurantId}`);
+      const syntheticRestaurant: SufrahRestaurant = {
+        id: bot.restaurantId,
+        name: bot.restaurantName || bot.name || null,
+        whatsappNumber: standardizeWhatsappNumber(bot.whatsappNumber),
+        externalMerchantId: bot.restaurantId, // Use restaurantId as synthetic merchantId
+      };
 
-    updateOrderState(phoneNumber, { restaurant: normalizedRestaurant });
-    return normalizedRestaurant;
+      updateOrderState(phoneNumber, { restaurant: syntheticRestaurant });
+      return syntheticRestaurant;
+    }
+
+    return null;
   } catch (error) {
     console.error('❌ Failed to resolve restaurant by WhatsApp number:', error);
     return null;
