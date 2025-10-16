@@ -240,7 +240,8 @@ docs/
   ├── ADMIN_BOT_REGISTRATION_GUIDE.md                  Bot UI guide
   ├── IMPLEMENTATION_SUMMARY.md                        Overview
   ├── BOT_RESPONSIVENESS_FIX.md                        Backend ref
-  ├── TEST_NEW_APIS.sh                                 Test script
+  ├── TEST_NEW_APIS.sh                  BOT_WEBHOOK_URL
+             Test script
   ├── WHAT_TO_TELL_DASHBOARD_DEVELOPER.md              Summary
   └── SEND_THIS_EMAIL.md                               This file
 ```

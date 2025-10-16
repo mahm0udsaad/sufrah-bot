@@ -24,11 +24,8 @@ function getRestaurantModel(): PrismaRestaurantModel | null {
 interface RawRestaurantRow {
   id: string;
   name?: string | null;
-  restaurant_name?: string | null;
   whatsapp_number?: string | null;
   external_merchant_id?: string | null;
-  externalmerchantid?: string | null;
-  externalmerchantId?: string | null;
 }
 
 function isMissingColumnError(error: unknown): error is PrismaClientKnownRequestError {
@@ -44,11 +41,8 @@ async function fetchRestaurantByWhatsappRaw(normalized: string): Promise<RawRest
       SELECT
         id,
         name,
-        restaurant_name,
         whatsapp_number,
-        external_merchant_id,
-        externalmerchantid,
-        externalmerchantId
+        external_merchant_id
       FROM "RestaurantProfile"
       WHERE whatsapp_number = ${normalized}
       LIMIT 1
@@ -68,8 +62,6 @@ function mapToRestaurant(record: any, normalized: string): SufrahRestaurant | nu
 
   const externalMerchantId =
     record.externalMerchantId ||
-    record.externalmerchantId ||
-    record.externalmerchantid ||
     record.external_merchant_id;
 
   if (!externalMerchantId) {
@@ -83,7 +75,7 @@ function mapToRestaurant(record: any, normalized: string): SufrahRestaurant | nu
 
   return {
     id: record.id,
-    name: record.name ?? record.restaurantName ?? record.restaurant_name ?? null,
+    name: record.name ?? record.restaurantName ?? null,
     whatsappNumber: whatsapp,
     externalMerchantId,
   };

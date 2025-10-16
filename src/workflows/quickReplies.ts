@@ -1,6 +1,19 @@
 import { createContent } from '../twilio/content';
 import { MAX_ITEM_QUANTITY, type BranchOption, type MenuItem, type MenuCategory } from './menuData';
 
+const MAX_LIST_PICKER_ITEMS = 10;
+
+/**
+ * Splits an array into chunks of specified size
+ */
+function chunkArray<T>(array: T[], chunkSize: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < array.length; i += chunkSize) {
+    chunks.push(array.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
 export async function createOrderTypeQuickReply(auth: string): Promise<string> {
   const payload = {
     friendly_name: `order_type_${Date.now()}`,
@@ -24,7 +37,8 @@ export async function createOrderTypeQuickReply(auth: string): Promise<string> {
 
 export async function createFoodListPicker(
   auth: string,
-  categories: MenuCategory[]
+  categories: MenuCategory[],
+  page: number = 1
 ): Promise<string> {
   const items = categories.map((category) => ({
     id: `cat_${category.id}`,
@@ -32,28 +46,32 @@ export async function createFoodListPicker(
     description: category.description,
   }));
 
+  const totalPages = Math.ceil(items.length / MAX_LIST_PICKER_ITEMS);
+  const pageIndicator = totalPages > 1 ? ` (صفحة ${page} من ${totalPages})` : '';
+
   const payload = {
-    friendly_name: `food_list_${Date.now()}`,
+    friendly_name: `food_list_${Date.now()}_p${page}`,
     language: 'ar',
     variables: { '1': 'اليوم' },
     types: {
       'twilio/list-picker': {
-        body: 'تصفح قائمتنا:',
+        body: `تصفح قائمتنا${pageIndicator}:`,
         button: 'عرض الفئات',
         items,
       },
       'twilio/text': {
-        body: `الفئات المتاحة: ${items.map((x) => x.item).join('، ')}`,
+        body: `الفئات المتاحة${pageIndicator}: ${items.map((x) => x.item).join('، ')}`,
       },
     },
   };
 
-  return createContent(auth, payload, 'Dynamic list picker created');
+  return createContent(auth, payload, `Dynamic list picker created (page ${page})`);
 }
 
 export async function createBranchListPicker(
   auth: string,
-  branches: BranchOption[]
+  branches: BranchOption[],
+  page: number = 1
 ): Promise<string> {
   const pickerItems = branches.map((branch) => ({
     id: `branch_${branch.id}`,
@@ -61,31 +79,35 @@ export async function createBranchListPicker(
     description: branch.description,
   }));
 
+  const totalPages = Math.ceil(branches.length / MAX_LIST_PICKER_ITEMS);
+  const pageIndicator = totalPages > 1 ? ` (صفحة ${page} من ${totalPages})` : '';
+
   const payload = {
-    friendly_name: `branch_list_${Date.now()}`,
+    friendly_name: `branch_list_${Date.now()}_p${page}`,
     language: 'ar',
     types: {
       'twilio/list-picker': {
-        body: 'اختر الفرع الأقرب لك:',
+        body: `اختر الفرع الأقرب لك${pageIndicator}:`,
         button: 'عرض الفروع',
         items: pickerItems,
       },
       'twilio/text': {
-        body: branches
+        body: `الفروع المتاحة${pageIndicator}:\n${branches
           .map((branch, index) => `${index + 1}. ${branch.item} — ${branch.description}`)
-          .join('\n'),
+          .join('\n')}`,
       },
     },
   } as any;
 
-  return createContent(auth, payload, 'Branch list picker created');
+  return createContent(auth, payload, `Branch list picker created (page ${page})`);
 }
 
 export async function createItemsListPicker(
   auth: string,
   categoryId: string,
   itemLabel: string,
-  items: MenuItem[]
+  items: MenuItem[],
+  page: number = 1
 ): Promise<string> {
   const listItems = items.map((item) => ({
     id: `item_${item.id}`,
@@ -95,25 +117,28 @@ export async function createItemsListPicker(
       : `${item.price} ${item.currency || 'ر.س'}`,
   }));
 
+  const totalPages = Math.ceil(items.length / MAX_LIST_PICKER_ITEMS);
+  const pageIndicator = totalPages > 1 ? ` (صفحة ${page} من ${totalPages})` : '';
+
   const payload = {
-    friendly_name: `items_list_${categoryId}_${Date.now()}`,
+    friendly_name: `items_list_${categoryId}_${Date.now()}_p${page}`,
     language: 'ar',
     variables: { '1': itemLabel || 'القسم' },
     types: {
       'twilio/list-picker': {
-        body: 'اختر طبقاً من {{1}}:',
+        body: `اختر طبقاً من {{1}}${pageIndicator}:`,
         button: 'عرض الأطباق',
         items: listItems,
       },
       'twilio/text': {
-        body: `أطباق {{1}}: ${items
+        body: `أطباق {{1}}${pageIndicator}: ${items
           .map((x) => `${x.item} (${x.price} ${x.currency || 'ر.س'})`)
           .join('، ')}`,
       },
     },
   } as any;
 
-  return createContent(auth, payload, `Dynamic items list picker created for ${categoryId}`);
+  return createContent(auth, payload, `Dynamic items list picker created for ${categoryId} (page ${page})`);
 }
 
 export async function createPostItemChoiceQuickReply(auth: string): Promise<string> {
@@ -200,29 +225,36 @@ export async function createCartOptionsQuickReply(auth: string): Promise<string>
   return createContent(auth, payload, 'Cart options quick reply created');
 }
 
-export async function createRemoveItemListQuickReply(auth: string, items: Array<{ id: string; name: string; quantity: number; price: number; currency?: string }>): Promise<string> {
+export async function createRemoveItemListQuickReply(
+  auth: string,
+  items: Array<{ id: string; name: string; quantity: number; price: number; currency?: string }>,
+  page: number = 1
+): Promise<string> {
   const listItems = items.map((entry) => ({
     id: `remove_item_${entry.id}`,
     item: entry.name,
     description: `${entry.quantity} × ${entry.price} ${entry.currency || 'ر.س'}`,
   }));
 
+  const totalPages = Math.ceil(items.length / MAX_LIST_PICKER_ITEMS);
+  const pageIndicator = totalPages > 1 ? ` (صفحة ${page} من ${totalPages})` : '';
+
   const payload = {
-    friendly_name: `remove_item_${Date.now()}`,
+    friendly_name: `remove_item_${Date.now()}_p${page}`,
     language: 'ar',
     types: {
       'twilio/list-picker': {
-        body: 'اختر الصنف الذي ترغب في حذفه من السلة:',
+        body: `اختر الصنف الذي ترغب في حذفه من السلة${pageIndicator}:`,
         button: 'حذف صنف',
         items: listItems,
       },
       'twilio/text': {
-        body: 'اكتب اسم الصنف الذي ترغب في حذفه.',
+        body: `اكتب اسم الصنف الذي ترغب في حذفه${pageIndicator}.`,
       },
     },
   } as any;
 
-  return createContent(auth, payload, 'Remove item list created');
+  return createContent(auth, payload, `Remove item list created (page ${page})`);
 }
 
 export async function createPaymentOptionsQuickReply(auth: string): Promise<string> {

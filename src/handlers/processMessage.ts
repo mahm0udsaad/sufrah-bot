@@ -376,6 +376,8 @@ export async function sendMenuCategories(
   phoneNumber: string,
   merchantId: string
 ) {
+  const MAX_LIST_PICKER_ITEMS = 10;
+  
   let categories: MenuCategory[] = [];
   try {
     categories = await getMenuCategories(merchantId);
@@ -408,16 +410,30 @@ export async function sendMenuCategories(
   );
 
   try {
-    const cacheKey = `categories:${merchantId}`;
-    const contentSid = await getCachedContentSid(
-      cacheKey,
-      () => createFoodListPicker(TWILIO_CONTENT_AUTH, categories),
-      'تصفح قائمتنا:'
-    );
-    await sendContentMessage(client, fromNumber, phoneNumber, contentSid, {
-      variables: { "1": "اليوم" },
-      logLabel: 'Categories list picker sent'
-    });
+    // Split categories into chunks of 10
+    const totalPages = Math.ceil(categories.length / MAX_LIST_PICKER_ITEMS);
+    
+    for (let page = 1; page <= totalPages; page++) {
+      const startIdx = (page - 1) * MAX_LIST_PICKER_ITEMS;
+      const endIdx = startIdx + MAX_LIST_PICKER_ITEMS;
+      const pageCategories = categories.slice(startIdx, endIdx);
+      
+      const cacheKey = `categories:${merchantId}:p${page}`;
+      const contentSid = await getCachedContentSid(
+        cacheKey,
+        () => createFoodListPicker(TWILIO_CONTENT_AUTH, pageCategories, page),
+        'تصفح قائمتنا:'
+      );
+      await sendContentMessage(client, fromNumber, phoneNumber, contentSid, {
+        variables: { "1": "اليوم" },
+        logLabel: `Categories list picker sent (page ${page}/${totalPages})`
+      });
+      
+      // Small delay between messages to ensure proper order
+      if (page < totalPages) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+    }
   } catch (error) {
     console.error('❌ Error creating/sending dynamic list picker:', error);
     const categoriesText = buildCategoriesFallback(categories);
@@ -431,6 +447,8 @@ export async function sendBranchSelection(
   phoneNumber: string,
   merchantId: string
 ) {
+  const MAX_LIST_PICKER_ITEMS = 10;
+  
   let branches: BranchOption[] = [];
   try {
     branches = await getMerchantBranches(merchantId);
@@ -463,15 +481,29 @@ export async function sendBranchSelection(
   );
 
   try {
-    const cacheKey = `branch_list:${merchantId}`;
-    const branchSid = await getCachedContentSid(
-      cacheKey,
-      () => createBranchListPicker(TWILIO_CONTENT_AUTH, branches),
-      'اختر الفرع الأقرب لك:'
-    );
-    await sendContentMessage(client, fromNumber, phoneNumber, branchSid, {
-      logLabel: 'Branch list picker sent'
-    });
+    // Split branches into chunks of 10
+    const totalPages = Math.ceil(branches.length / MAX_LIST_PICKER_ITEMS);
+    
+    for (let page = 1; page <= totalPages; page++) {
+      const startIdx = (page - 1) * MAX_LIST_PICKER_ITEMS;
+      const endIdx = startIdx + MAX_LIST_PICKER_ITEMS;
+      const pageBranches = branches.slice(startIdx, endIdx);
+      
+      const cacheKey = `branch_list:${merchantId}:p${page}`;
+      const branchSid = await getCachedContentSid(
+        cacheKey,
+        () => createBranchListPicker(TWILIO_CONTENT_AUTH, pageBranches, page),
+        'اختر الفرع الأقرب لك:'
+      );
+      await sendContentMessage(client, fromNumber, phoneNumber, branchSid, {
+        logLabel: `Branch list picker sent (page ${page}/${totalPages})`
+      });
+      
+      // Small delay between messages to ensure proper order
+      if (page < totalPages) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+    }
   } catch (error) {
     console.error('❌ Error creating/sending branch list picker:', error);
     const fallback = `🏢 اختر الفرع الأقرب لك:\n\n${branches
@@ -612,6 +644,8 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
     ) => sendContentMessage(twilioClient, fromNumber, phoneNumber, contentSid, options);
 
     const showCategoryItems = async (category: MenuCategory) => {
+      const MAX_LIST_PICKER_ITEMS = 10;
+      
       updateOrderState(phoneNumber, { activeCategoryId: category.id });
 
       let items: MenuItem[] = [];
@@ -629,15 +663,29 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       }
 
       try {
-        const contentSid = await getCachedContentSid(
-          `items_list:${merchantId}:${category.id}`,
-          () => createItemsListPicker(TWILIO_CONTENT_AUTH, category.id, category.item, items),
-          `اختر طبقاً من ${category.item}:`
-        );
-        await sendBotContent(contentSid, {
-          variables: { '1': category.item },
-          logLabel: `Items list picker for ${category.id} sent`,
-        });
+        // Split items into chunks of 10
+        const totalPages = Math.ceil(items.length / MAX_LIST_PICKER_ITEMS);
+        
+        for (let page = 1; page <= totalPages; page++) {
+          const startIdx = (page - 1) * MAX_LIST_PICKER_ITEMS;
+          const endIdx = startIdx + MAX_LIST_PICKER_ITEMS;
+          const pageItems = items.slice(startIdx, endIdx);
+          
+          const contentSid = await getCachedContentSid(
+            `items_list:${merchantId}:${category.id}:p${page}`,
+            () => createItemsListPicker(TWILIO_CONTENT_AUTH, category.id, category.item, pageItems, page),
+            `اختر طبقاً من ${category.item}:`
+          );
+          await sendBotContent(contentSid, {
+            variables: { '1': category.item },
+            logLabel: `Items list picker for ${category.id} sent (page ${page}/${totalPages})`,
+          });
+          
+          // Small delay between messages to ensure proper order
+          if (page < totalPages) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+        }
       } catch (error) {
         console.error('❌ Error creating/sending items list picker:', error);
         const itemsText = `🍽️ اختر طبقاً من ${category.item}:\n\n${items
@@ -1234,6 +1282,7 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       normalizedArabic.includes('احذف صنف');
 
     if (isRemoveItemTrigger) {
+      const MAX_LIST_PICKER_ITEMS = 10;
       const cart = getCart(phoneNumber);
       if (!cart.length) {
         await sendBotText("السلة فارغة، لا توجد أصناف للحذف."
@@ -1244,20 +1293,37 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       updateOrderState(phoneNumber, { awaitingRemoval: true });
 
       try {
-        const removeSid = await createRemoveItemListQuickReply(
-          TWILIO_CONTENT_AUTH,
-          cart.map((item) => ({
-            id: item.id,
-            name: item.name,
-            quantity: item.quantity,
-            price: item.price,
-            currency: item.currency,
-          }))
-        );
-        registerTemplateTextForSid(removeSid, 'اختر الصنف الذي ترغب في حذفه من السلة:');
-        await sendBotContent(removeSid, {
-          logLabel: 'Remove item list sent'
-        });
+        const cartItems = cart.map((item) => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+          currency: item.currency,
+        }));
+        
+        // Split cart items into chunks of 10
+        const totalPages = Math.ceil(cartItems.length / MAX_LIST_PICKER_ITEMS);
+        
+        for (let page = 1; page <= totalPages; page++) {
+          const startIdx = (page - 1) * MAX_LIST_PICKER_ITEMS;
+          const endIdx = startIdx + MAX_LIST_PICKER_ITEMS;
+          const pageCartItems = cartItems.slice(startIdx, endIdx);
+          
+          const removeSid = await createRemoveItemListQuickReply(
+            TWILIO_CONTENT_AUTH,
+            pageCartItems,
+            page
+          );
+          registerTemplateTextForSid(removeSid, 'اختر الصنف الذي ترغب في حذفه من السلة:');
+          await sendBotContent(removeSid, {
+            logLabel: `Remove item list sent (page ${page}/${totalPages})`
+          });
+          
+          // Small delay between messages to ensure proper order
+          if (page < totalPages) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+        }
       } catch (error) {
         console.error('❌ Error sending remove item list:', error);
         await sendBotText("اكتب اسم الصنف الذي ترغب في حذفه أو أرسل رقمه كما يظهر في السلة."
