@@ -161,7 +161,7 @@ model Order {
 }
 
 model Restaurant {
-  id                 String            @id
+  id                 String            @id @default(cuid())
   userId             String            @unique @map("user_id")
   name               String
   description        String?
@@ -174,7 +174,7 @@ model Restaurant {
   twilioAuthToken    String?           @map("twilio_auth_token")
   status             OnboardingStatus  @default(PENDING_APPROVAL)
   createdAt          DateTime          @default(now()) @map("created_at")
-  updatedAt          DateTime          @map("updated_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
   externalMerchantId String?           @map("external_merchant_id")
   conversations      Conversation[]
   messages           Message[]
@@ -190,7 +190,7 @@ model Restaurant {
 }
 
 model OrderItem {
-  id         String @id
+  id         String @id @default(cuid())
   orderId    String @map("order_id")
   name       String
   qty        Int    @map("qty")
@@ -220,7 +220,7 @@ model WebhookLog {
 }
 
 model Template {
-  id                   String   @id
+  id                   String   @id @default(cuid())
   user_id              String
   name                 String
   category             String
@@ -235,7 +235,7 @@ model Template {
   whatsapp_template_id String?
   usage_count          Int?     @default(0)
   created_at           DateTime @default(now())
-  updated_at           DateTime
+  updated_at           DateTime @updatedAt
   User                 User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([status])
@@ -244,13 +244,13 @@ model Template {
 
 model UsageLog {
   id                String     @id @default(cuid())
-  restaurant_id     String
+  restaurantId      String     @map("restaurant_id")
   action            String
   details           Json?      @default("{}")
   created_at        DateTime   @default(now())
-  RestaurantProfile Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade)
+  RestaurantProfile Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
-  @@index([restaurant_id])
+  @@index([restaurantId])
 }
 
 model File {
@@ -271,7 +271,7 @@ model File {
 }
 
 model User {
-  id                      String      @id
+  id                      String      @id @default(cuid())
   phone                   String      @unique
   name                    String?
   email                   String?
@@ -279,7 +279,7 @@ model User {
   verification_code       String?
   verification_expires_at DateTime?
   created_at              DateTime    @default(now())
-  updated_at              DateTime
+  updated_at              DateTime    @updatedAt
   RestaurantProfile       Restaurant?
   Template                Template[]
   files                   File[]
