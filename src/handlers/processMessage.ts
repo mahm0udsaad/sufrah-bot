@@ -22,6 +22,7 @@ import {
 } from '../workflows/menuData';
 import { getRestaurantByWhatsapp, type SufrahRestaurant } from '../db/sufrahRestaurantService';
 import { findRestaurantByWhatsAppNumber } from '../db/restaurantService';
+import { prisma } from '../db/client';
 import {
   createOrderTypeQuickReply,
   createFoodListPicker,
@@ -193,6 +194,30 @@ export async function sendWelcomeTemplate(
     const twilioClientManager = new TwilioClientManager();
     const twilioClient = await twilioClientManager.getClient(restaurant.id);
     if (!twilioClient) throw new Error("Twilio client is not available for this restaurant");
+
+    // Special welcome message for Ocean Restaurant
+    const OCEAN_MERCHANT_ID = '2a065243-3b03-41b9-806b-571cfea27ea8';
+    if (restaurant.externalMerchantId === OCEAN_MERCHANT_ID) {
+      const oceanWelcome = `مرحباً بكم في مطعم شاورما أوشن 🌊
+
+استمتعوا بعرضنا الخاص عند الطلب من التطبيق فقط:
+✨ خصم 10% على طلبك
+🚗 توصيل مجاني لجميع الطلبات
+
+احصل على عرضك الآن من خلال تحميل التطبيق:
+
+📱 لأجهزة iPhone:
+https://apps.apple.com/us/app/%D8%B4%D8%A7%D9%88%D8%B1%D9%85%D8%A7-%D8%A3%D9%88%D8%B4%D9%86/id6753905053?platform=iphone
+
+📱 لأجهزة Android:
+https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcampaignid=web_share
+
+اطلب الآن واستمتع بأفضل تجربة شاورما 🍔😋`;
+
+      await sendTextMessage(twilioClient, restaurant.whatsappNumber || process.env.TWILIO_WHATSAPP_FROM || '', to, oceanWelcome);
+      console.log(`✅ Ocean Restaurant custom welcome sent to ${to}`);
+      return;
+    }
 
     let welcomeContentSid = process.env.CONTENT_SID_WELCOME || '';
     let welcomeApprovalRequested = !!welcomeContentSid;
@@ -535,22 +560,35 @@ export async function resolveRestaurantContext(
   }
 
   try {
-    // Try Sufrah lookup first (requires externalMerchantId)
-    const restaurant = await getRestaurantByWhatsapp(standardizedRecipient);
-    if (restaurant) {
-      const normalizedRestaurant: SufrahRestaurant = {
-        ...restaurant,
-        whatsappNumber: standardizeWhatsappNumber(restaurant.whatsappNumber),
-      };
-
-      updateOrderState(phoneNumber, { restaurant: normalizedRestaurant });
-      return normalizedRestaurant;
-    }
-
-    // Fallback: derive context from linked RestaurantBot (for non-Sufrah tenants)
+    // Step 1: Find the bot linked to this WhatsApp number
     const bot = await findRestaurantByWhatsAppNumber(standardizedRecipient);
+    
     if (bot && bot.restaurantId) {
-      console.log(`ℹ️ Creating synthetic restaurant context from bot ${bot.id} for tenant ${bot.restaurantId}`);
+      // Step 2: Get the RestaurantProfile for this bot
+      const restaurantProfile = await (prisma as any).restaurant?.findUnique?.({
+        where: { id: bot.restaurantId },
+        select: {
+          id: true,
+          name: true,
+          externalMerchantId: true,
+        },
+      });
+
+      if (restaurantProfile && restaurantProfile.externalMerchantId) {
+        console.log(`ℹ️ Resolved restaurant context from bot ${bot.id} → profile ${bot.restaurantId} → merchant ${restaurantProfile.externalMerchantId}`);
+        const restaurantContext: SufrahRestaurant = {
+          id: restaurantProfile.id,
+          name: restaurantProfile.name || bot.restaurantName || bot.name || null,
+          whatsappNumber: standardizeWhatsappNumber(bot.whatsappNumber),
+          externalMerchantId: restaurantProfile.externalMerchantId,
+        };
+
+        updateOrderState(phoneNumber, { restaurant: restaurantContext });
+        return restaurantContext;
+      }
+
+      // Fallback: No externalMerchantId, create synthetic context
+      console.log(`ℹ️ Creating synthetic restaurant context from bot ${bot.id} for tenant ${bot.restaurantId} (no Sufrah merchant ID)`);
       const syntheticRestaurant: SufrahRestaurant = {
         id: bot.restaurantId,
         name: bot.restaurantName || bot.name || null,
@@ -560,6 +598,18 @@ export async function resolveRestaurantContext(
 
       updateOrderState(phoneNumber, { restaurant: syntheticRestaurant });
       return syntheticRestaurant;
+    }
+
+    // Step 3: Legacy fallback - direct WhatsApp number lookup (for old setups)
+    const restaurant = await getRestaurantByWhatsapp(standardizedRecipient);
+    if (restaurant) {
+      const normalizedRestaurant: SufrahRestaurant = {
+        ...restaurant,
+        whatsappNumber: standardizeWhatsappNumber(restaurant.whatsappNumber),
+      };
+
+      updateOrderState(phoneNumber, { restaurant: normalizedRestaurant });
+      return normalizedRestaurant;
     }
 
     return null;
@@ -638,9 +688,6 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
     }
     await updateConversationSession(conversationId, sessionBaseUpdate);
 
-    // Check if merchantId is a real Sufrah merchant ID (UUID format) or synthetic (CUID)
-    const isSyntheticMerchant = merchantId && merchantId.startsWith('c') && merchantId.length > 20;
-    
     if (!merchantId) {
       await sendTextMessage(
         twilioClient,
@@ -651,14 +698,21 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       return;
     }
 
+    // Check if merchantId is a real Sufrah merchant ID (UUID format) or synthetic (CUID)
+    const isSyntheticMerchant = merchantId && merchantId.startsWith('c') && merchantId.length > 20;
     if (isSyntheticMerchant) {
       console.log(`ℹ️ Synthetic merchant ID detected (${merchantId}). Sufrah integration not available for this tenant.`);
-      await sendTextMessage(
-        twilioClient,
-        fromNumber,
-        phoneNumber,
-        `مرحباً بك في ${restaurantContext.name || 'مطعمنا'}! 👋\n\nنحن هنا لخدمتك. يمكنك التواصل معنا مباشرة وسيقوم فريقنا بالرد عليك في أقرب وقت.\n\nشكراً لتواصلك معنا! 🌟`
-      );
+      
+      // Send welcome for first-time users even without Sufrah
+      if (!hasWelcomed(phoneNumber)) {
+        await sendTextMessage(
+          twilioClient,
+          fromNumber,
+          phoneNumber,
+          `مرحباً بك في ${restaurantContext.name || 'مطعمنا'}! 👋\n\nنحن هنا لخدمتك. يمكنك التواصل معنا مباشرة وسيقوم فريقنا بالرد عليك في أقرب وقت.\n\nشكراً لتواصلك معنا! 🌟`
+        );
+        markWelcomed(phoneNumber);
+      }
       return;
     }
 
