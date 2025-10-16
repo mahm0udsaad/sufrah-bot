@@ -638,12 +638,26 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
     }
     await updateConversationSession(conversationId, sessionBaseUpdate);
 
+    // Check if merchantId is a real Sufrah merchant ID (UUID format) or synthetic (CUID)
+    const isSyntheticMerchant = merchantId && merchantId.startsWith('c') && merchantId.length > 20;
+    
     if (!merchantId) {
       await sendTextMessage(
         twilioClient,
         fromNumber,
         phoneNumber,
         '⚠️ الخدمة غير متاحة مؤقتاً، يرجى المحاولة لاحقاً.'
+      );
+      return;
+    }
+
+    if (isSyntheticMerchant) {
+      console.log(`ℹ️ Synthetic merchant ID detected (${merchantId}). Sufrah integration not available for this tenant.`);
+      await sendTextMessage(
+        twilioClient,
+        fromNumber,
+        phoneNumber,
+        `مرحباً بك في ${restaurantContext.name || 'مطعمنا'}! 👋\n\nنحن هنا لخدمتك. يمكنك التواصل معنا مباشرة وسيقوم فريقنا بالرد عليك في أقرب وقت.\n\nشكراً لتواصلك معنا! 🌟`
       );
       return;
     }
