@@ -107,14 +107,24 @@ export async function handleWhatsAppSend(req: Request, url: URL): Promise<Respon
   }
 
   const fromNumber = standardizeWhatsappNumber(fromPhoneRaw) || TWILIO_WHATSAPP_FROM;
+  
+  // Try to get restaurant-specific client, but allow fallback to global client
   const restaurant = await getRestaurantByWhatsapp(fromNumber);
-  if (!restaurant) {
-    return jsonResponse({ error: 'Sending number is not associated with an active restaurant' }, 400);
+  
+  let twilioClient;
+  if (restaurant) {
+    // Use restaurant-specific client
+    twilioClient = await clientManager.getClient(restaurant.id);
+  } else {
+    // Use global/master client as fallback
+    console.log(`ℹ️ No restaurant found for ${fromNumber}, using global Twilio client`);
+    twilioClient = clientManager.getGlobalClient();
   }
-
-  const twilioClient = await clientManager.getClient(restaurant.id);
+  
   if (!twilioClient) {
-    return jsonResponse({ error: 'Twilio client not available for this restaurant' }, 500);
+    return jsonResponse({ 
+      error: 'Twilio client not available. Please configure TWILIO_MASTER_SID and TWILIO_MASTER_AUTH or associate the sending number with a restaurant.' 
+    }, 500);
   }
 
   try {

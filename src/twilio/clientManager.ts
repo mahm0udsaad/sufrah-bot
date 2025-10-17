@@ -8,7 +8,7 @@ export class TwilioClientManager {
   private clients: Map<string, twilio.Twilio> = new Map();
   private globalClient: twilio.Twilio | null = null;
 
-  private getGlobalClient(): twilio.Twilio | null {
+  public getGlobalClient(): twilio.Twilio | null {
     if (this.globalClient) return this.globalClient;
     const sid = TWILIO_MASTER_SID || TWILIO_ACCOUNT_SID;
     const auth = TWILIO_MASTER_AUTH || TWILIO_AUTH_TOKEN;
