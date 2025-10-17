@@ -35,7 +35,7 @@ export const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL || 'https://suf
 export const WHATSAPP_SEND_TOKEN = process.env.WHATSAPP_SEND_TOKEN || '';
 
 // Sufrah external API
-export const SUFRAH_API_BASE = process.env.SUFRAH_API_BASE || 'https://api.dev.sufrah.sa/api/v1/external';
+export const SUFRAH_API_BASE = process.env.SUFRAH_API_BASE || 'https://api.sufrah.sa/api/v1/external';
 export const SUFRAH_API_KEY = `ApiToken ${process.env.SUFRAH_API_KEY}` || '';
 export const SUFRAH_CACHE_TTL_MS = Number(process.env.SUFRAH_CACHE_TTL_MS || 180_000);
 // Auth
