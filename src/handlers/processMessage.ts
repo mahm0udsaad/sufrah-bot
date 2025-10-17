@@ -314,11 +314,13 @@ async function sendOceanPromo(
           button: 'اختر نوع الجهاز',
           items: [
             {
+              item: 'ocean_app_iphone',
               id: 'ocean_app_iphone',
               title: '📱 iPhone',
               description: 'تحميل التطبيق لأجهزة آيفون'
             },
             {
+              item: 'ocean_app_android',
               id: 'ocean_app_android',
               title: '📱 Android',
               description: 'تحميل التطبيق لأجهزة أندرويد'
@@ -336,8 +338,38 @@ async function sendOceanPromo(
   } catch (error) {
     console.error('❌ Failed to send Ocean promo list picker:', error);
     
-    // Fallback: send as text with both links
-    const fallbackPromo = `مرحباً بكم في مطعم شاورما أوشن 🌊
+    // Fallback: Use quick reply buttons instead of list picker
+    try {
+      const quickReplyContent = await twilioClient.content.v1.contents.create({
+        friendly_name: `ocean_promo_qr_${Date.now()}`,
+        language: 'ar',
+        types: {
+          'twilio/quick-reply': {
+            body: `مرحباً بكم في مطعم شاورما أوشن 🌊
+
+استمتعوا بعرضنا الخاص عند الطلب من التطبيق فقط:
+✨ خصم 10% على طلبك
+🚗 توصيل مجاني لجميع الطلبات
+
+احصل على عرضك الآن من خلال تحميل التطبيق:`,
+            actions: [
+              { id: 'ocean_app_iphone', title: '📱 iPhone', type: 'QUICK_REPLY' },
+              { id: 'ocean_app_android', title: '📱 Android', type: 'QUICK_REPLY' }
+            ]
+          }
+        }
+      });
+
+      await sendContentMessage(twilioClient, fromNumber, toNumber, quickReplyContent.sid, {
+        logLabel: 'Ocean promo quick reply sent'
+      });
+      
+      console.log(`✅ Ocean promo with quick reply buttons sent to ${toNumber}`);
+    } catch (qrError) {
+      console.error('❌ Failed to send Ocean promo quick reply:', qrError);
+      
+      // Final fallback: send as text with both links
+      const fallbackPromo = `مرحباً بكم في مطعم شاورما أوشن 🌊
 
 استمتعوا بعرضنا الخاص عند الطلب من التطبيق فقط:
 ✨ خصم 10% على طلبك
@@ -353,7 +385,8 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
 
 اطلب الآن واستمتع بأفضل تجربة شاورما 🍔😋`;
 
-    await sendTextMessage(twilioClient, fromNumber, toNumber, fallbackPromo);
+      await sendTextMessage(twilioClient, fromNumber, toNumber, fallbackPromo);
+    }
   }
 }
 

@@ -34,3 +34,19 @@ export function standardizeWhatsappNumber(raw: string): string {
 
   return `+${digitsOnly.replace(/^\+/, '')}`;
 }
+
+/**
+ * Strip + prefix from phone number for Sufrah API compatibility
+ * Sufrah API expects: 966502045939 (no + prefix)
+ */
+export function stripPlusPrefix(phone: string): string {
+  if (!phone) return '';
+  
+  // Remove whatsapp: prefix if present
+  let cleaned = phone.replace(/^whatsapp:/, '');
+  
+  // Remove + prefix
+  cleaned = cleaned.replace(/^\+/, '');
+  
+  return cleaned;
+}

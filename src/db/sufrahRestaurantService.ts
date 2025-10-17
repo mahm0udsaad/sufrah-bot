@@ -1,6 +1,6 @@
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { prisma } from './client';
-import { standardizeWhatsappNumber } from '../utils/phone';
+import { standardizeWhatsappNumber, stripPlusPrefix } from '../utils/phone';
 
 export interface SufrahRestaurant {
   id: string;
@@ -37,7 +37,8 @@ function isMissingColumnError(error: unknown): error is PrismaClientKnownRequest
 
 async function fetchRestaurantByWhatsappRaw(normalized: string): Promise<RawRestaurantRow | null> {
   try {
-    const rows = await prisma.$queryRaw<RawRestaurantRow[]>`
+    // Try with + prefix first
+    let rows = await prisma.$queryRaw<RawRestaurantRow[]>`
       SELECT
         id,
         name,
@@ -47,6 +48,25 @@ async function fetchRestaurantByWhatsappRaw(normalized: string): Promise<RawRest
       WHERE whatsapp_number = ${normalized}
       LIMIT 1
     `;
+
+    if (rows.length > 0) {
+      return rows[0];
+    }
+
+    // Fallback: try without + prefix (for Sufrah API compatibility)
+    const withoutPlus = stripPlusPrefix(normalized);
+    if (withoutPlus !== normalized) {
+      rows = await prisma.$queryRaw<RawRestaurantRow[]>`
+        SELECT
+          id,
+          name,
+          whatsapp_number,
+          external_merchant_id
+        FROM "RestaurantProfile"
+        WHERE whatsapp_number = ${withoutPlus}
+        LIMIT 1
+      `;
+    }
 
     return rows[0] ?? null;
   } catch (error) {
