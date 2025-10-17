@@ -2,7 +2,7 @@ import twilio from 'twilio';
 import { sendContentMessage, sendTextMessage } from '../twilio/messaging';
 import { createContent } from '../twilio/content';
 import { ensureWhatsAppAddress, normalizePhoneNumber, standardizeWhatsappNumber } from '../utils/phone';
-import { buildCategoriesFallback, matchesAnyTrigger } from '../utils/text';
+import { buildCategoriesFallback, matchesAnyTrigger, splitLongMessage } from '../utils/text';
 import { getReadableAddress } from '../utils/geocode';
 import { TWILIO_CONTENT_AUTH, SUPPORT_CONTACT } from '../config';
 import {
@@ -551,7 +551,16 @@ export async function sendMenuCategories(
   } catch (error) {
     console.error('❌ Error creating/sending dynamic list picker:', error);
     const categoriesText = buildCategoriesFallback(categories);
-    await sendTextMessage(client, fromNumber, phoneNumber, categoriesText);
+    
+    // Split long messages to avoid exceeding character limits
+    const chunks = splitLongMessage(categoriesText);
+    for (const chunk of chunks) {
+      await sendTextMessage(client, fromNumber, phoneNumber, chunk);
+      // Small delay between messages
+      if (chunks.length > 1) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+    }
   }
 }
 
@@ -623,7 +632,16 @@ export async function sendBranchSelection(
     const fallback = `🏢 اختر الفرع الأقرب لك:\n\n${branches
       .map((branch, index) => `${index + 1}. ${branch.item} — ${branch.description}`)
       .join('\n')}\n\nاكتب اسم الفرع أو رقمه.`;
-    await sendTextMessage(client, fromNumber, phoneNumber, fallback);
+    
+    // Split long messages to avoid exceeding character limits
+    const chunks = splitLongMessage(fallback);
+    for (const chunk of chunks) {
+      await sendTextMessage(client, fromNumber, phoneNumber, chunk);
+      // Small delay between messages
+      if (chunks.length > 1) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+    }
   }
 }
 
@@ -867,7 +885,16 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
               `${index + 1}. ${it.item}${it.description ? ` — ${it.description}` : ''} (${it.price} ${it.currency || 'ر.س'})`
           )
           .join('\n')}\n\nاكتب رقم الطبق أو اسمه.`;
-        await sendBotText(itemsText);
+        
+        // Split long messages to avoid exceeding character limits
+        const chunks = splitLongMessage(itemsText);
+        for (const chunk of chunks) {
+          await sendBotText(chunk);
+          // Small delay between messages
+          if (chunks.length > 1) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+        }
       }
     };
 

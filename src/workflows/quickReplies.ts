@@ -2,6 +2,7 @@ import { createContent } from '../twilio/content';
 import { MAX_ITEM_QUANTITY, type BranchOption, type MenuItem, type MenuCategory } from './menuData';
 
 const MAX_LIST_PICKER_ITEMS = 10;
+const MAX_DESCRIPTION_LENGTH = 72; // Twilio's limit for list picker item descriptions
 
 /**
  * Splits an array into chunks of specified size
@@ -12,6 +13,16 @@ function chunkArray<T>(array: T[], chunkSize: number): T[][] {
     chunks.push(array.slice(i, i + chunkSize));
   }
   return chunks;
+}
+
+/**
+ * Truncates a string to a maximum length, adding ellipsis if needed
+ */
+function truncateDescription(text: string, maxLength: number = MAX_DESCRIPTION_LENGTH): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return text.slice(0, maxLength - 3) + '...';
 }
 
 export async function createOrderTypeQuickReply(auth: string): Promise<string> {
@@ -43,7 +54,7 @@ export async function createFoodListPicker(
   const items = categories.map((category) => ({
     id: `cat_${category.id}`,
     item: category.item,
-    description: category.description,
+    description: truncateDescription(category.description || ''),
   }));
 
   const totalPages = Math.ceil(items.length / MAX_LIST_PICKER_ITEMS);
@@ -76,7 +87,7 @@ export async function createBranchListPicker(
   const pickerItems = branches.map((branch) => ({
     id: `branch_${branch.id}`,
     item: branch.item,
-    description: branch.description,
+    description: truncateDescription(branch.description || ''),
   }));
 
   const totalPages = Math.ceil(branches.length / MAX_LIST_PICKER_ITEMS);
@@ -109,13 +120,18 @@ export async function createItemsListPicker(
   items: MenuItem[],
   page: number = 1
 ): Promise<string> {
-  const listItems = items.map((item) => ({
-    id: `item_${item.id}`,
-    item: item.item,
-    description: item.description
-      ? `${item.description} • ${item.price} ${item.currency || 'ر.س'}`
-      : `${item.price} ${item.currency || 'ر.س'}`,
-  }));
+  const listItems = items.map((item) => {
+    const priceText = `${item.price} ${item.currency || 'ر.س'}`;
+    const fullDescription = item.description
+      ? `${item.description} • ${priceText}`
+      : priceText;
+    
+    return {
+      id: `item_${item.id}`,
+      item: item.item,
+      description: truncateDescription(fullDescription),
+    };
+  });
 
   const totalPages = Math.ceil(items.length / MAX_LIST_PICKER_ITEMS);
   const pageIndicator = totalPages > 1 ? ` (صفحة ${page} من ${totalPages})` : '';
@@ -233,7 +249,7 @@ export async function createRemoveItemListQuickReply(
   const listItems = items.map((entry) => ({
     id: `remove_item_${entry.id}`,
     item: entry.name,
-    description: `${entry.quantity} × ${entry.price} ${entry.currency || 'ر.س'}`,
+    description: truncateDescription(`${entry.quantity} × ${entry.price} ${entry.currency || 'ر.س'}`),
   }));
 
   const totalPages = Math.ceil(items.length / MAX_LIST_PICKER_ITEMS);
