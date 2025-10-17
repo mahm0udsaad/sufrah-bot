@@ -1,10 +1,11 @@
 import { prisma } from './client';
 import type { RestaurantBot } from '@prisma/client';
-import { standardizeWhatsappNumber } from '../utils/phone';
+import { standardizeWhatsappNumber, stripPlusPrefix } from '../utils/phone';
 
 /**
  * Lookup RestaurantBot by WhatsApp "To" number
  * This is the core routing mechanism for multi-tenancy
+ * Handles both +966... and 966... formats
  */
 export async function findRestaurantByWhatsAppNumber(
   whatsappFrom: string
@@ -14,7 +15,8 @@ export async function findRestaurantByWhatsAppNumber(
     return null;
   }
 
-  const bot = await (prisma as any).restaurantBot?.findFirst?.({
+  // Try with + prefix first (standard format)
+  let bot = await (prisma as any).restaurantBot?.findFirst?.({
     where: {
       whatsappNumber: normalized,
       isActive: true,
@@ -23,6 +25,22 @@ export async function findRestaurantByWhatsAppNumber(
       restaurant: true,
     },
   });
+
+  // Fallback: try without + prefix (dashboard may store without +)
+  if (!bot) {
+    const withoutPlus = stripPlusPrefix(normalized);
+    if (withoutPlus !== normalized) {
+      bot = await (prisma as any).restaurantBot?.findFirst?.({
+        where: {
+          whatsappNumber: withoutPlus,
+          isActive: true,
+        },
+        include: {
+          restaurant: true,
+        },
+      });
+    }
+  }
 
   if (bot) {
     return {
