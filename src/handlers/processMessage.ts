@@ -195,29 +195,9 @@ export async function sendWelcomeTemplate(
     const twilioClient = await twilioClientManager.getClient(restaurant.id);
     if (!twilioClient) throw new Error("Twilio client is not available for this restaurant");
 
-    // Special welcome message for Ocean Restaurant
+    // Special handling for Ocean Restaurant - send promo after normal welcome
     const OCEAN_MERCHANT_ID = '2a065243-3b03-41b9-806b-571cfea27ea8';
-    if (restaurant.externalMerchantId === OCEAN_MERCHANT_ID) {
-      const oceanWelcome = `مرحباً بكم في مطعم شاورما أوشن 🌊
-
-استمتعوا بعرضنا الخاص عند الطلب من التطبيق فقط:
-✨ خصم 10% على طلبك
-🚗 توصيل مجاني لجميع الطلبات
-
-احصل على عرضك الآن من خلال تحميل التطبيق:
-
-📱 لأجهزة iPhone:
-https://apps.apple.com/us/app/%D8%B4%D8%A7%D9%88%D8%B1%D9%85%D8%A7-%D8%A3%D9%88%D8%B4%D9%86/id6753905053?platform=iphone
-
-📱 لأجهزة Android:
-https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcampaignid=web_share
-
-اطلب الآن واستمتع بأفضل تجربة شاورما 🍔😋`;
-
-      await sendTextMessage(twilioClient, restaurant.whatsappNumber || process.env.TWILIO_WHATSAPP_FROM || '', to, oceanWelcome);
-      console.log(`✅ Ocean Restaurant custom welcome sent to ${to}`);
-      return;
-    }
+    const isOceanRestaurant = restaurant.externalMerchantId === OCEAN_MERCHANT_ID;
 
     let welcomeContentSid = process.env.CONTENT_SID_WELCOME || '';
     let welcomeApprovalRequested = !!welcomeContentSid;
@@ -278,13 +258,18 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
       throw new Error('Welcome content SID unavailable');
     }
 
-    return sendContentMessage(twilioClient, restaurant.whatsappNumber || process.env.TWILIO_WHATSAPP_FROM || '', to, welcomeContentSid, {
+    await sendContentMessage(twilioClient, restaurant.whatsappNumber || process.env.TWILIO_WHATSAPP_FROM || '', to, welcomeContentSid, {
       variables: {
         1: safeRestaurantName,
         2: safeGuestName,
       },
       logLabel: 'Welcome template sent'
     });
+
+    // After normal welcome, send Ocean promo with app links
+    if (isOceanRestaurant) {
+      await sendOceanPromo(twilioClient, restaurant.whatsappNumber || process.env.TWILIO_WHATSAPP_FROM || '', to);
+    }
   } catch (error) {
     console.error("❌ Error in sendWelcomeTemplate:", error);
 
@@ -296,9 +281,79 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
       const twilioClientManager = new TwilioClientManager();
       const twilioClient = await twilioClientManager.getClient(restaurant.id);
       if (twilioClient) {
-        return sendTextMessage(twilioClient, restaurant.whatsappNumber || process.env.TWILIO_WHATSAPP_FROM || '', to, fallback);
+        await sendTextMessage(twilioClient, restaurant.whatsappNumber || process.env.TWILIO_WHATSAPP_FROM || '', to, fallback);
+        
+        // Send Ocean promo even after fallback
+        if (isOceanRestaurant) {
+          await sendOceanPromo(twilioClient, restaurant.whatsappNumber || process.env.TWILIO_WHATSAPP_FROM || '', to);
+        }
       }
     }
+  }
+}
+
+// Ocean Restaurant app promo with platform selector
+async function sendOceanPromo(
+  twilioClient: twilio.Twilio,
+  fromNumber: string,
+  toNumber: string
+): Promise<void> {
+  try {
+    const promoContent = await twilioClient.content.v1.contents.create({
+      friendly_name: `ocean_promo_${Date.now()}`,
+      language: 'ar',
+      types: {
+        'twilio/list-picker': {
+          body: `مرحباً بكم في مطعم شاورما أوشن 🌊
+
+استمتعوا بعرضنا الخاص عند الطلب من التطبيق فقط:
+✨ خصم 10% على طلبك
+🚗 توصيل مجاني لجميع الطلبات
+
+احصل على عرضك الآن من خلال تحميل التطبيق:`,
+          button: 'اختر نوع الجهاز',
+          items: [
+            {
+              id: 'ocean_app_iphone',
+              title: '📱 iPhone',
+              description: 'تحميل التطبيق لأجهزة آيفون'
+            },
+            {
+              id: 'ocean_app_android',
+              title: '📱 Android',
+              description: 'تحميل التطبيق لأجهزة أندرويد'
+            }
+          ]
+        }
+      }
+    });
+
+    await sendContentMessage(twilioClient, fromNumber, toNumber, promoContent.sid, {
+      logLabel: 'Ocean promo list picker sent'
+    });
+    
+    console.log(`✅ Ocean promo with app selector sent to ${toNumber}`);
+  } catch (error) {
+    console.error('❌ Failed to send Ocean promo list picker:', error);
+    
+    // Fallback: send as text with both links
+    const fallbackPromo = `مرحباً بكم في مطعم شاورما أوشن 🌊
+
+استمتعوا بعرضنا الخاص عند الطلب من التطبيق فقط:
+✨ خصم 10% على طلبك
+🚗 توصيل مجاني لجميع الطلبات
+
+احصل على عرضك الآن من خلال تحميل التطبيق:
+
+📱 لأجهزة iPhone:
+https://apps.apple.com/us/app/%D8%B4%D8%A7%D9%88%D8%B1%D9%85%D8%A7-%D8%A3%D9%88%D8%B4%D9%86/id6753905053?platform=iphone
+
+📱 لأجهزة Android:
+https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcampaignid=web_share
+
+اطلب الآن واستمتع بأفضل تجربة شاورما 🍔😋`;
+
+    await sendTextMessage(twilioClient, fromNumber, toNumber, fallbackPromo);
   }
 }
 
@@ -820,7 +875,29 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       }
     };
 
-    // Step 1: If first time, send welcome
+    // Step 1: Handle Ocean app link selection
+    const OCEAN_MERCHANT_ID = '2a065243-3b03-41b9-806b-571cfea27ea8';
+    if (restaurantContext.externalMerchantId === OCEAN_MERCHANT_ID) {
+      if (normalizedBody === 'ocean_app_iphone' || normalizedArabic.includes('iphone') || normalizedArabic.includes('آيفون')) {
+        await sendBotText(`📱 رابط تحميل التطبيق لأجهزة iPhone:
+
+https://apps.apple.com/us/app/%D8%B4%D8%A7%D9%88%D8%B1%D9%85%D8%A7-%D8%A3%D9%88%D8%B4%D9%86/id6753905053?platform=iphone
+
+شكراً لاختيارك مطعم شاورما أوشن! 🌊`);
+        return;
+      }
+      
+      if (normalizedBody === 'ocean_app_android' || normalizedArabic.includes('android') || normalizedArabic.includes('أندرويد') || normalizedArabic.includes('اندرويد')) {
+        await sendBotText(`📱 رابط تحميل التطبيق لأجهزة Android:
+
+https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcampaignid=web_share
+
+شكراً لاختيارك مطعم شاورما أوشن! 🌊`);
+        return;
+      }
+    }
+
+    // Step 2: If first time, send welcome
     if (!hasWelcomed(phoneNumber)) {
       await sendWelcomeTemplate(
         phoneNumber,
