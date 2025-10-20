@@ -39,6 +39,7 @@ import { getCachedContentSid, seedCacheFromKey } from '../workflows/cache';
 import { recordInboundMessage } from '../workflows/messages';
 import { registerTemplateTextForSid } from '../workflows/templateText';
 import { submitExternalOrder, OrderSubmissionError } from '../services/orderSubmission';
+import { checkDeliveryAvailability } from '../services/sufrahApi';
 import { TwilioClientManager } from '../twilio/clientManager';
 import {
   addItemToCart,
@@ -1004,6 +1005,30 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         await sendBotText('تعذر قراءة الموقع. فضلاً أعد مشاركة موقعك مرة أخرى.');
         updateOrderState(phoneNumber, { awaitingLocation: true });
         return;
+      }
+
+      // Check delivery availability using the new Sufrah API
+      if (latitude && longitude && merchantId) {
+        try {
+          const isAvailable = await checkDeliveryAvailability(merchantId, latitude, longitude);
+          
+          if (!isAvailable) {
+            // Area not covered for delivery
+            await sendBotText('أهلاً وسهلاً 👋 حالياً عنوانك خارج نطاق التوصيل المعتمد للمطعم، نعتذر منك. بإمكانك  الطلب للاستلام من المطعم، ونسعد بخدمتك دائماً.');
+            
+            // Reset order state and send welcome message again
+            resetOrder(phoneNumber, { preserveRestaurant: true });
+            await sendWelcomeTemplate(phoneNumber, currentState.customerName || profileName, restaurantContext);
+            return;
+          }
+          
+          // Area is covered, proceed normally
+          console.log(`✅ Delivery is available for location: ${address}`);
+        } catch (error) {
+          console.error('❌ Error checking delivery availability:', error);
+          // On error, log but continue with the order (fail open)
+          console.warn('⚠️ Proceeding with order despite availability check failure');
+        }
       }
 
       updateOrderState(phoneNumber, {

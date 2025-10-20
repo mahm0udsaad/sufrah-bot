@@ -444,6 +444,31 @@ export async function submitExternalOrder(
     branchId = confirmedBranchId;
   }
 
+  const isOnlinePayment = (paymentMethod || '').toLowerCase() === 'online';
+  const shouldAwaitPaymentConfirmation = isOnlinePayment && !!paymentLink;
+  const nowIsoString = new Date().toISOString();
+
+  const metaPayload = {
+    orderNumber,
+    total: totals.total,
+    currency: totals.currency,
+    paymentMethod,
+    orderType,
+    branchId,
+    items: sessionItems,
+    customerName,
+    customerPhone: sanitizedCustomerPhone,
+    paymentLink: paymentLink || null,
+    sufrahResponse: fullResponseData || null,
+    awaitingPaymentConfirmation: shouldAwaitPaymentConfirmation,
+    ratingPromptSent: !shouldAwaitPaymentConfirmation,
+    paymentLinkSentAt: shouldAwaitPaymentConfirmation ? nowIsoString : undefined,
+  } as Record<string, unknown>;
+
+  const metaValue = JSON.parse(
+    JSON.stringify(metaPayload)
+  );
+
   const branchDetails = await resolveBranchDetails(merchantId, branchId, session);
   const branchPhone = branchDetails.phoneNumber;
   const branchName = branchDetails.name || session?.branchName || state.branchName || undefined;
@@ -456,22 +481,6 @@ export async function submitExternalOrder(
   );
 
   try {
-    const metaValue = JSON.parse(
-      JSON.stringify({
-        orderNumber,
-        total: totals.total,
-        currency: totals.currency,
-        paymentMethod,
-        orderType,
-        branchId,
-        items: sessionItems,
-        customerName,
-        customerPhone: sanitizedCustomerPhone,
-        paymentLink: paymentLink || null,
-        sufrahResponse: fullResponseData || null,
-      })
-    );
-
     const createdOrder = await prisma.order.create({
       data: {
         restaurantId: restaurant.id,
@@ -562,12 +571,14 @@ export async function submitExternalOrder(
     branchName ? `🏪 الفرع: ${branchName}` : undefined,
   ];
 
-  if (paymentMethod === 'Online' && paymentLink) {
+  if (isOnlinePayment && paymentLink) {
     customerMessageLines.push('');
     customerMessageLines.push('🔗 لإتمام الدفع، يرجى استخدام الرابط التالي:');
     customerMessageLines.push(paymentLink);
     customerMessageLines.push('');
-    customerMessageLines.push('⏰ يرجى إتمام الدفع لتأكيد طلبك.');
+    customerMessageLines.push('⏰ يرجى إتمام الدفع لتأكيد طلبك. سنقوم بتأكيد الدفع فور استلامه.');
+  } else if (isOnlinePayment) {
+    customerMessageLines.push('⏰ تمت جدولة طلبك للدفع الإلكتروني، وسنؤكد إكماله حال تحديث حالة الدفع.');
   } else {
     customerMessageLines.push('سنبدأ بتحضير طلبك الآن.');
   }
@@ -576,23 +587,26 @@ export async function submitExternalOrder(
 
   await sendTextMessage(twilioClient, senderNumber, sanitizedCustomerPhone, customerMessage);
 
-  // Send rating message via template content
-  try {
-    const ratingContentSid = await getCachedContentSid(
-      'rating_list',
-      () => createRatingListContent(TWILIO_CONTENT_AUTH),
-      'اختر تقييمك من 1 إلى 5 ⭐'
-    );
-    await sendContentMessage(
-      twilioClient,
-      senderNumber,
-      sanitizedCustomerPhone,
-      ratingContentSid,
-      { logLabel: 'Rating list template sent' }
-    );
-    console.log(`⭐ [OrderSubmission] Rating template sent to ${sanitizedCustomerPhone}`);
-  } catch (error) {
-    console.error('⚠️ [OrderSubmission] Failed to send rating template:', error);
+  if (!shouldAwaitPaymentConfirmation) {
+    try {
+      const ratingContentSid = await getCachedContentSid(
+        'rating_list',
+        () => createRatingListContent(TWILIO_CONTENT_AUTH),
+        'اختر تقييمك من 1 إلى 5 ⭐'
+      );
+      await sendContentMessage(
+        twilioClient,
+        senderNumber,
+        sanitizedCustomerPhone,
+        ratingContentSid,
+        { logLabel: 'Rating list template sent' }
+      );
+      console.log(`⭐ [OrderSubmission] Rating template sent to ${sanitizedCustomerPhone}`);
+    } catch (error) {
+      console.error('⚠️ [OrderSubmission] Failed to send rating template:', error);
+    }
+  } else {
+    console.log('⏳ [OrderSubmission] Deferring rating prompt until payment confirmation webhook arrives.');
   }
 
   if (branchPhone) {

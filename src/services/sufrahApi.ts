@@ -136,3 +136,23 @@ export async function fetchMerchantBranches(
   console.log(`[Sufrah API] Fetched ${result.length} branches`);
   return result;
 }
+
+export async function checkDeliveryAvailability(
+  merchantId: string,
+  latitude: string | number,
+  longitude: string | number
+): Promise<boolean> {
+  if (!merchantId) {
+    console.error('[Sufrah API] checkDeliveryAvailability called with empty merchantId');
+    throw new Error('Missing merchant id');
+  }
+  if (!latitude || !longitude) {
+    console.error('[Sufrah API] checkDeliveryAvailability called with invalid coordinates');
+    throw new Error('Missing coordinates');
+  }
+  
+  console.log(`[Sufrah API] Checking delivery availability for merchant: ${merchantId}, lat: ${latitude}, lng: ${longitude}`);
+  const available = await request<boolean>(`external/addresses/check-availability?MerchantId=${merchantId}&Lat=${latitude}&Lng=${longitude}`);
+  console.log(`[Sufrah API] Delivery availability: ${available}`);
+  return available;
+}
