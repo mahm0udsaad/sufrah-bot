@@ -9,6 +9,50 @@ import { eventBus } from '../../redis/eventBus';
 
 const twilioClientManager = new TwilioClientManager();
 
+/**
+ * Translates English order/payment status to Arabic
+ */
+function translateStatusToArabic(status: string): string {
+  const normalized = status.trim().toLowerCase();
+  
+  // Payment status translations
+  const paymentStatusMap: Record<string, string> = {
+    'paid': 'تم الدفع',
+    'Paid': 'تم الدفع',
+    'pending': 'قيد الانتظار',
+    'refunded': 'تم الاسترداد',
+    'failed': 'فشل الدفع',
+    'success': 'تم بنجاح',
+    'succeeded': 'تم بنجاح',
+    'completed': 'مكتمل',
+    'confirmed': 'مؤكد',
+    'captured': 'تم التحصيل',
+    'authorized': 'مصرح به',
+  };
+  
+  // Order status translations
+  const orderStatusMap: Record<string, string> = {
+    'inprogress': 'قيد التحضير',
+    'in_progress': 'قيد التحضير',
+    'in progress': 'قيد التحضير',
+    'preparing': 'قيد التحضير',
+    'received': 'تم الاستلام',
+    'confirmed': 'مؤكد',
+    'processing': 'قيد المعالجة',
+    'ready': 'جاهز',
+    'out_for_delivery': 'خرج للتوصيل',
+    'out for delivery': 'خرج للتوصيل',
+    'delivered': 'تم التوصيل',
+    'completed': 'مكتمل',
+    'cancelled': 'ملغى',
+    'canceled': 'ملغى',
+    'rejected': 'مرفوض',
+  };
+  
+  // Check both maps
+  return paymentStatusMap[normalized] || orderStatusMap[normalized] || status;
+}
+
 export async function handleStatus(req: Request, url: URL): Promise<Response | null> {
   if (!(req.method === 'POST' && url.pathname === '/status')) {
     return null;
@@ -224,8 +268,10 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
           statusMessage = `✅ تم تأكيد الدفع لطلبك رقم ${orderNumber}. شكرًا لك!`;
           console.log('💬 [StatusWebhook] Sending payment confirmation message to customer:', customerPhone);
         } else if (status || paymentStatus) {
-          statusMessage = `ℹ️ تحديث حالة طلبك رقم ${orderNumber}: ${status || paymentStatus}`;
-          console.log('💬 [StatusWebhook] Sending status update message to customer:', customerPhone);
+          const statusToTranslate = status || paymentStatus;
+          const arabicStatus = translateStatusToArabic(statusToTranslate);
+          statusMessage = `ℹ️ تحديث حالة طلبك رقم ${orderNumber}: ${arabicStatus}`;
+          console.log('💬 [StatusWebhook] Sending status update message to customer:', customerPhone, `(${statusToTranslate} -> ${arabicStatus})`);
         }
 
         if (statusMessage) {
