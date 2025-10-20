@@ -494,6 +494,8 @@ export async function submitExternalOrder(
     customerName || undefined
   );
 
+  let createdOrderId: string | undefined;
+
   try {
     const createdOrder = await prisma.order.create({
       data: {
@@ -514,6 +516,8 @@ export async function submitExternalOrder(
         status: 'CONFIRMED', // Mark as confirmed since it's submitted to Sufrah
       },
     });
+
+    createdOrderId = createdOrder.id;
 
     // Create OrderItem records for each item in the order
     let orderItems: any[] = [];
@@ -616,6 +620,19 @@ export async function submitExternalOrder(
         { logLabel: 'Rating list template sent' }
       );
       console.log(`⭐ [OrderSubmission] Rating template sent to ${sanitizedCustomerPhone}`);
+      
+      // Mark that we've sent the rating prompt
+      if (createdOrderId) {
+        try {
+          await prisma.order.update({
+            where: { id: createdOrderId },
+            data: { ratingAskedAt: new Date() },
+          });
+          console.log(`✅ [OrderSubmission] Marked ratingAskedAt for order #${orderNumber}`);
+        } catch (markError) {
+          console.error('⚠️ [OrderSubmission] Failed to mark ratingAskedAt:', markError);
+        }
+      }
     } catch (error) {
       console.error('⚠️ [OrderSubmission] Failed to send rating template:', error);
     }

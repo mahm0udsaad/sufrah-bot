@@ -25,6 +25,7 @@ import { handleAdmin } from './src/server/routes/admin';
 import { handleTwilioForm, handleVerify, handleMeta } from './src/server/routes/webhooks';
 import { handleConversationsApi } from './src/server/routes/api/conversations';
 import { handleConversationsDbApi } from './src/server/routes/api/conversationsDb';
+import { handleRatingsApi } from './src/server/routes/api/ratings';
 import { getGlobalBotEnabled, setGlobalBotEnabled, getWelcomedUsersCount } from './src/state/bot';
 
 // Removed business logic helpers; they now live in dedicated modules
@@ -98,6 +99,10 @@ const server = Bun.serve({
     // Database-backed Conversations API (use this for dashboard)
     const convDbResponse = await handleConversationsDbApi(req, url);
     if (convDbResponse) return convDbResponse;
+
+    // Ratings API (for dashboard)
+    const ratingsResponse = await handleRatingsApi(req, url);
+    if (ratingsResponse) return ratingsResponse;
 
     // Conversations API (legacy in-memory)
     const convResponse = await handleConversationsApi(req, url);

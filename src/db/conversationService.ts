@@ -53,6 +53,23 @@ export async function getConversation(customerWa: string): Promise<Conversation 
 }
 
 /**
+ * Get conversation by restaurant and customer WA number
+ */
+export async function getConversationByRestaurantAndCustomer(
+  restaurantId: string,
+  customerWa: string
+): Promise<Conversation | null> {
+  return prisma.conversation.findUnique({
+    where: {
+      restaurantId_customerWa: {
+        restaurantId,
+        customerWa,
+      },
+    },
+  });
+}
+
+/**
  * Get conversation by ID
  */
 export async function getConversationById(id: string): Promise<Conversation | null> {

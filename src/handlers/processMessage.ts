@@ -63,6 +63,8 @@ import {
 } from '../state/session';
 import { getGlobalBotEnabled, hasWelcomed, markWelcomed } from '../state/bot';
 import { stopOrderStatusSimulation, startOrderStatusSimulation } from './orderStatus';
+import { parseRatingFromReply, isPositiveRating, createSorryMessageText } from '../workflows/ratingTemplates';
+import { setOrderRating, markRatingAsked } from '../db/orderService';
 
 const DEFAULT_CURRENCY = 'ر.س';
 
@@ -936,7 +938,103 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       }
     };
 
-    // Step 1: Handle Ocean app link selection
+    // Step 1: Handle rating responses (rate_1 through rate_5 or plain numbers)
+    const ratingFromReply = parseRatingFromReply(trimmedBody);
+    const ratingFromText = /^[1-5]$/.test(trimmedBody) ? parseInt(trimmedBody, 10) : null;
+    const rating = ratingFromReply ?? ratingFromText;
+
+    if (rating !== null) {
+      // Find the most recent order for this conversation to attach the rating
+      const session = await getConversationSession(conversationId);
+      const lastOrderNumber = session?.lastOrderNumber;
+
+      if (!lastOrderNumber) {
+        await sendBotText('لم نتمكن من العثور على طلب لتقييمه. شكراً لك!');
+        return;
+      }
+
+      // Find the order by reference number
+      try {
+        const order = await prisma.order.findFirst({
+          where: {
+            restaurantId: restaurantContext.id,
+            meta: {
+              path: ['orderNumber'],
+              equals: lastOrderNumber,
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        if (!order) {
+          await sendBotText('لم نتمكن من العثور على طلبك. شكراً لاهتمامك!');
+          return;
+        }
+
+        // Check if already rated
+        if (order.rating !== null) {
+          await sendBotText('شكراً! لقد قمت بتقييم هذا الطلب سابقاً. نقدر اهتمامك! 🌟');
+          return;
+        }
+
+        // Store that we're awaiting a rating comment for this order
+        updateOrderState(phoneNumber, { 
+          awaitingRatingComment: true,
+          pendingRatingValue: rating,
+          pendingRatingOrderId: order.id 
+        });
+
+        // Send appropriate response based on rating
+        if (isPositiveRating(rating)) {
+          await sendBotText(`🌟 شكراً لتقييمك ${rating} نجوم! نسعد بخدمتك دائماً.\n\nهل تود إضافة تعليق على الطلب؟ (اختياري)\nاكتب تعليقك أو أرسل "لا" للتخطي.`);
+        } else {
+          await sendBotText(`شكراً لتقييمك. ${createSorryMessageText()}\n\nهل تود إضافة تعليق على الطلب؟ (اختياري)\nاكتب تعليقك أو أرسل "لا" للتخطي.`);
+        }
+        return;
+      } catch (error) {
+        console.error('❌ Error processing rating:', error);
+        await sendBotText('حدث خطأ أثناء حفظ تقييمك. يرجى المحاولة مرة أخرى.');
+        return;
+      }
+    }
+
+    // Step 1.5: Handle rating comment (if user is in rating comment mode)
+    if (currentState.awaitingRatingComment && currentState.pendingRatingOrderId) {
+      const skipComment = normalizedBody === 'no' || normalizedArabic === 'لا' || normalizedBody === 'skip' || normalizedArabic === 'تخطي';
+      const comment = skipComment ? undefined : trimmedBody;
+
+      try {
+        await setOrderRating(
+          currentState.pendingRatingOrderId,
+          currentState.pendingRatingValue || 0,
+          comment
+        );
+
+        updateOrderState(phoneNumber, { 
+          awaitingRatingComment: false,
+          pendingRatingValue: undefined,
+          pendingRatingOrderId: undefined 
+        });
+
+        if (isPositiveRating(currentState.pendingRatingValue || 0)) {
+          await sendBotText('✅ تم حفظ تقييمك بنجاح! شكراً لوقتك ونتطلع لخدمتك مرة أخرى 🌟');
+        } else {
+          await sendBotText('✅ تم حفظ تقييمك. نعتذر عن أي إزعاج وسنعمل على تحسين خدماتنا. شكراً لملاحظاتك! 🙏');
+        }
+        return;
+      } catch (error) {
+        console.error('❌ Error saving rating:', error);
+        updateOrderState(phoneNumber, { 
+          awaitingRatingComment: false,
+          pendingRatingValue: undefined,
+          pendingRatingOrderId: undefined 
+        });
+        await sendBotText('حدث خطأ أثناء حفظ تقييمك. شكراً لاهتمامك!');
+        return;
+      }
+    }
+
+    // Step 2: Handle Ocean app link selection
     const OCEAN_MERCHANT_ID = '2a065243-3b03-41b9-806b-571cfea27ea8';
     if (restaurantContext.externalMerchantId === OCEAN_MERCHANT_ID) {
       if (normalizedBody === 'ocean_app_iphone' || normalizedArabic.includes('iphone') || normalizedArabic.includes('آيفون')) {
@@ -958,7 +1056,7 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
       }
     }
 
-    // Step 2: If first time, send welcome
+    // Step 3: If first time, send welcome
     if (!hasWelcomed(phoneNumber)) {
       await sendWelcomeTemplate(
         phoneNumber,

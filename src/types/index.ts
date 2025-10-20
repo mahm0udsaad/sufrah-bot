@@ -49,6 +49,9 @@ export interface OrderState {
   };
   activeCategoryId?: string;
   customerName?: string;
+  awaitingRatingComment?: boolean;
+  pendingRatingValue?: number;
+  pendingRatingOrderId?: string;
 }
 
 export type MessageType =

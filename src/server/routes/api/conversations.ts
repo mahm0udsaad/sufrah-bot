@@ -1,11 +1,11 @@
 import { jsonResponse } from '../../http';
 import { normalizePhoneNumber } from '../../../utils/phone';
 import {
-  getConversations,
-  getConversationMessages,
-  getConversationById,
+  getConversations as getStoredConversations,
+  getConversationMessages as getStoredConversationMessages,
+  getConversationById as getStoredConversationById,
   getOrCreateConversation,
-  markConversationRead,
+  markConversationRead as markStoredConversationRead,
   setConversationData,
 } from '../../../state/conversations';
 import { mapConversationToApi, mapMessageToApi } from '../../../workflows/mappers';
@@ -16,9 +16,17 @@ import { resolveRestaurantContext } from '../../../handlers/processMessage';
 import {
   updateConversation as updateDbConversation,
   findOrCreateConversation,
+  listConversations as listDbConversations,
+  markConversationRead as markDbConversationRead,
+  getConversationByRestaurantAndCustomer,
 } from '../../../db/conversationService';
-import { createOutboundMessage, updateMessageWithSid } from '../../../db/messageService';
-import type { MessageType } from '../../../types';
+import {
+  createOutboundMessage,
+  updateMessageWithSid,
+  listMessages as listDbMessages,
+} from '../../../db/messageService';
+import type { MessageType, StoredConversation, StoredMessage } from '../../../types';
+import type { Conversation as DbConversation, Message as DbMessage } from '@prisma/client';
 import { getRestaurantById } from '../../../db/restaurantService';
 
 const twilioClientManager = new TwilioClientManager();
@@ -54,6 +62,43 @@ function authenticate(req: Request): { ok: boolean; type?: AuthType; restaurantI
   return { ok: false, error: 'Unauthorized' };
 }
 
+function mapDbConversationToStored(conversation: DbConversation): StoredConversation {
+  const normalizedPhone = normalizePhoneNumber(conversation.customerWa);
+  return {
+    id: normalizedPhone,
+    customerPhone: normalizedPhone,
+    customerName: conversation.customerName ?? undefined,
+    status: conversation.status,
+    lastMessageAt: conversation.lastMessageAt.toISOString(),
+    unreadCount: conversation.unreadCount,
+    isBotActive: conversation.isBotActive,
+    createdAt: conversation.createdAt.toISOString(),
+    updatedAt: conversation.updatedAt.toISOString(),
+  };
+}
+
+function mapDbMessageToStored(message: DbMessage, conversationPhone: string): StoredMessage {
+  const metadata = (message.metadata ?? {}) as { fromPhone?: unknown; toPhone?: unknown };
+  const fromPhoneRaw = typeof metadata.fromPhone === 'string' ? metadata.fromPhone : undefined;
+  const toPhoneRaw = typeof metadata.toPhone === 'string' ? metadata.toPhone : undefined;
+
+  const normalizedConversationPhone = normalizePhoneNumber(conversationPhone);
+  const fromPhone = fromPhoneRaw ? normalizePhoneNumber(fromPhoneRaw) : normalizedConversationPhone;
+  const toPhone = toPhoneRaw ? normalizePhoneNumber(toPhoneRaw) : normalizedConversationPhone;
+
+  return {
+    id: message.id,
+    conversationId: normalizedConversationPhone,
+    fromPhone,
+    toPhone,
+    messageType: message.messageType as MessageType,
+    content: message.content,
+    mediaUrl: message.mediaUrl ?? null,
+    timestamp: message.createdAt.toISOString(),
+    isFromCustomer: message.direction === 'IN',
+  };
+}
+
 export async function handleConversationsApi(req: Request, url: URL): Promise<Response | null> {
   if (req.method === 'GET' && url.pathname === '/api/conversations') {
     const auth = authenticate(req);
@@ -61,7 +106,29 @@ export async function handleConversationsApi(req: Request, url: URL): Promise<Re
       const status = auth.error?.includes('required') ? 400 : 401;
       return jsonResponse({ error: auth.error || 'Unauthorized' }, status);
     }
-    const data = getConversations().map(mapConversationToApi);
+    if (auth.type === 'pat') {
+      const statusParam = url.searchParams.get('status');
+      const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+      const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+      const statusFilter =
+        statusParam === 'active' || statusParam === 'closed'
+          ? (statusParam as DbConversation['status'])
+          : undefined;
+
+      const conversations = await listDbConversations(auth.restaurantId!, {
+        status: statusFilter,
+        limit,
+        offset,
+      });
+
+      const response = conversations
+        .map(mapDbConversationToStored)
+        .map(mapConversationToApi);
+
+      return jsonResponse(response);
+    }
+
+    const data = getStoredConversations().map(mapConversationToApi);
     return jsonResponse(data);
   }
 
@@ -85,11 +152,36 @@ export async function handleConversationsApi(req: Request, url: URL): Promise<Re
         return jsonResponse({ error: 'Conversation id required' }, 400);
       }
       const normalizedId = normalizePhoneNumber(decodeURIComponent(conversationIdRaw));
-      const messages = getConversationMessages(normalizedId);
-      if (!messages.length && !getConversationById(normalizedId)) {
+      if (auth.type === 'pat') {
+        const limit = parseInt(url.searchParams.get('limit') || '100', 10);
+        const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+
+        const dbConversation = await getConversationByRestaurantAndCustomer(
+          auth.restaurantId!,
+          normalizedId
+        );
+        if (!dbConversation) {
+          return jsonResponse({ error: 'Conversation not found' }, 404);
+        }
+
+        const dbMessages = await listDbMessages(dbConversation.id, { limit, offset });
+        const storedMessages = dbMessages.map((msg) =>
+          mapDbMessageToStored(msg, normalizedId)
+        );
+
+        await markDbConversationRead(dbConversation.id).catch((err) => {
+          console.error('⚠️ Failed to mark DB conversation as read:', err);
+        });
+
+        markStoredConversationRead(normalizedId);
+        return jsonResponse(storedMessages.map(mapMessageToApi));
+      }
+
+      const messages = getStoredConversationMessages(normalizedId);
+      if (!messages.length && !getStoredConversationById(normalizedId)) {
         return jsonResponse({ error: 'Conversation not found' }, 404);
       }
-      markConversationRead(normalizedId);
+      markStoredConversationRead(normalizedId);
       return jsonResponse(messages.map(mapMessageToApi));
     }
   }
@@ -160,9 +252,9 @@ export async function handleConversationsApi(req: Request, url: URL): Promise<Re
           console.error('⚠️ Failed to persist outbound message log:', logError);
         }
 
-        markConversationRead(normalizedId);
+        markStoredConversationRead(normalizedId);
         setConversationData(normalizedId, { status: 'active', isBotActive: true });
-        const messages = getConversationMessages(normalizedId);
+        const messages = getStoredConversationMessages(normalizedId);
         const lastMessage = messages[messages.length - 1];
         if (!lastMessage) {
           return jsonResponse({ message: null }, 202);
@@ -290,9 +382,9 @@ export async function handleConversationsApi(req: Request, url: URL): Promise<Re
         } catch (logError) {
           console.error('⚠️ Failed to persist outbound media log:', logError);
         }
-        markConversationRead(normalizedId);
+        markStoredConversationRead(normalizedId);
         setConversationData(normalizedId, { status: 'active', isBotActive: true });
-        const messages = getConversationMessages(normalizedId);
+        const messages = getStoredConversationMessages(normalizedId);
         const lastMessage = messages[messages.length - 1];
         if (!lastMessage) {
           return jsonResponse({ message: null }, 202);

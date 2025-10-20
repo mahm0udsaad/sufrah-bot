@@ -11,6 +11,7 @@ import { getRestaurantById } from '../db/restaurantService';
 import { createOutboundMessage, updateMessageWithSid } from '../db/messageService';
 import { updateConversation } from '../db/conversationService';
 import { eventBus } from './eventBus';
+import { getRenderedTemplatePreview } from '../services/templatePreview';
 
 // Job data type for outbound messages
 export interface OutboundMessageJob {
@@ -135,15 +136,41 @@ export function startOutboundWorker(): Worker<OutboundMessageJob> {
           lastMessageAt: new Date(),
         });
 
-        // Publish real-time event
+        // Fetch template preview if this is a template message
+        let templatePreview = null;
+        if (contentSid) {
+          try {
+            templatePreview = await getRenderedTemplatePreview(contentSid, variables);
+            console.log(`📋 [Queue] Fetched template preview for ${contentSid}`);
+          } catch (error) {
+            console.warn(`⚠️ [Queue] Failed to fetch template preview:`, error);
+          }
+        }
+
+        // Publish real-time event with template preview
         await eventBus.publishMessage(restaurantId, {
           type: 'message.sent',
           message: {
             id: messageRecord.id,
             conversationId,
             content: body || contentSid || '',
+            messageType: contentSid ? 'template' : messageType || 'text',
             direction: 'OUT',
             createdAt: messageRecord.createdAt,
+            ...(contentSid && {
+              contentSid,
+              variables,
+            }),
+            ...(templatePreview && {
+              templatePreview: {
+                sid: templatePreview.sid,
+                friendlyName: templatePreview.friendlyName,
+                body: templatePreview.body,
+                buttons: templatePreview.buttons,
+                contentType: templatePreview.contentType,
+                language: templatePreview.language,
+              },
+            }),
           },
         });
 

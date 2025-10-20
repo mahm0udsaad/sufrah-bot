@@ -22,6 +22,7 @@ import {
   TWILIO_CONTENT_AUTH,
   TWILIO_QUICK_REPLAY_SID,
 } from '../config';
+import { getRenderedTemplatePreview } from './templatePreview';
 
 type TwilioClient = ReturnType<typeof twilio>;
 
@@ -795,13 +796,24 @@ export async function sendWhatsAppMessage(
       metadata: successMetadata,
     });
 
+    // Fetch template preview if a template was used
+    let templatePreview = null;
+    if (usedTemplateSid) {
+      try {
+        templatePreview = await getRenderedTemplatePreview(usedTemplateSid, { order_text: trimmedText });
+        console.log(`📋 [WhatsAppSend] Fetched template preview for ${usedTemplateSid}`);
+      } catch (error) {
+        console.warn(`⚠️ [WhatsAppSend] Failed to fetch template preview:`, error);
+      }
+    }
+
     const messageRecord = await createOutboundMessage({
       conversationId: conversation.id,
       restaurantId,
       waSid: twilioResponse.sid,
       fromPhone: normalizedSender,
       toPhone: normalizedRecipient,
-      messageType: 'text',
+      messageType: usedTemplateSid ? 'template' : 'text',
       content: trimmedText,
       metadata: {
         channel,
@@ -809,6 +821,16 @@ export async function sendWhatsAppMessage(
         templateSid: usedTemplateSid,
         templateName: usedTemplateName,
         outboundLogId: outboundLog?.id ?? null,
+        ...(templatePreview && {
+          templatePreview: {
+            sid: templatePreview.sid,
+            friendlyName: templatePreview.friendlyName,
+            body: templatePreview.body,
+            buttons: templatePreview.buttons,
+            contentType: templatePreview.contentType,
+            language: templatePreview.language,
+          },
+        }),
       },
     });
 
