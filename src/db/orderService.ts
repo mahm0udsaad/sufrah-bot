@@ -166,7 +166,9 @@ export async function setOrderRating(
   rating: number,
   ratingComment?: string
 ): Promise<Order> {
-  return prisma.order.update({
+  console.log('🔵 setOrderRating called:', { id, rating, ratingComment });
+  
+  const updatedOrder = await prisma.order.update({
     where: { id },
     data: {
       rating,
@@ -176,6 +178,15 @@ export async function setOrderRating(
       updatedAt: new Date(),
     },
   });
+  
+  console.log('✅ Order rating saved:', {
+    id: updatedOrder.id,
+    rating: updatedOrder.rating,
+    ratedAt: updatedOrder.ratedAt,
+    orderReference: updatedOrder.orderReference,
+  });
+  
+  return updatedOrder;
 }
 
 /**

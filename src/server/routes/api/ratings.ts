@@ -142,6 +142,8 @@ export async function handleRatingsApi(req: Request, url: URL): Promise<Response
   // GET /api/db/ratings/stats - Get rating statistics
   if (req.method === 'GET' && url.pathname === '/api/db/ratings/stats') {
     try {
+      console.log('📊 Fetching rating stats for restaurantId:', restaurantId);
+      
       const orders = await prisma.order.findMany({
         where: {
           restaurantId,
@@ -153,6 +155,8 @@ export async function handleRatingsApi(req: Request, url: URL): Promise<Response
           rating: true,
         },
       });
+
+      console.log('📊 Found orders with ratings:', orders.length, 'ratings:', orders.map(o => o.rating));
 
       const totalRatings = orders.length;
       const ratingCounts = [0, 0, 0, 0, 0]; // Index 0 = 1 star, Index 4 = 5 stars

@@ -946,15 +946,38 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
     if (rating !== null) {
       // Find the most recent order for this conversation to attach the rating
       const session = await getConversationSession(conversationId);
+      console.log('📝 Session data:', session);
       const lastOrderNumber = session?.lastOrderNumber;
+      console.log('🔢 lastOrderNumber from session:', lastOrderNumber);
 
       if (!lastOrderNumber) {
+        console.log('⚠️ No lastOrderNumber in session for conversationId:', conversationId);
         await sendBotText('لم نتمكن من العثور على طلب لتقييمه. شكراً لك!');
         return;
       }
 
       // Find the order by reference number
       try {
+        console.log('🔍 Looking for order with orderNumber:', lastOrderNumber, 'restaurantId:', restaurantContext.id);
+        
+        // First, let's see all orders for this conversation to debug
+        const allOrders = await prisma.order.findMany({
+          where: {
+            conversationId,
+          },
+          select: {
+            id: true,
+            orderReference: true,
+            rating: true,
+            status: true,
+            meta: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        });
+        console.log('📋 All recent orders for this conversation:', JSON.stringify(allOrders, null, 2));
+        
         const order = await prisma.order.findFirst({
           where: {
             restaurantId: restaurantContext.id,
@@ -965,6 +988,14 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
           },
           orderBy: { createdAt: 'desc' },
         });
+
+        console.log('📦 Found order:', order ? {
+          id: order.id,
+          orderReference: order.orderReference,
+          rating: order.rating,
+          status: order.status,
+          meta: order.meta,
+        } : 'null');
 
         if (!order) {
           await sendBotText('لم نتمكن من العثور على طلبك. شكراً لاهتمامك!');
