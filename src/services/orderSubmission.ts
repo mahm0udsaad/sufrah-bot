@@ -496,12 +496,18 @@ export async function submitExternalOrder(
 
   let createdOrderId: string | undefined;
 
+  console.log(`💾 [OrderSubmission] Creating order record for Sufrah order #${orderNumber}`, {
+    restaurantId: restaurant.id,
+    conversationId: conversation.id,
+    orderNumber,
+  });
+
   try {
     const createdOrder = await prisma.order.create({
       data: {
         restaurantId: restaurant.id,
         conversationId: conversation.id,
-        orderReference: state.orderReference ?? null,
+        orderReference: orderNumber.toString(), // Set immediately with Sufrah order number
         orderType,
         paymentMethod,
         totalCents: Math.round(totals.total * 100),
@@ -518,13 +524,12 @@ export async function submitExternalOrder(
     });
 
     createdOrderId = createdOrder.id;
-
-    // Update the order with the actual Sufrah order number
-    await prisma.order.update({
-      where: { id: createdOrder.id },
-      data: { orderReference: orderNumber.toString() },
+    console.log(`✅ [OrderSubmission] Order record created successfully:`, {
+      orderId: createdOrder.id,
+      orderReference: createdOrder.orderReference,
+      restaurantId: createdOrder.restaurantId,
+      sufrahOrderNumber: orderNumber,
     });
-    console.log(`🔄 [OrderSubmission] Updated order ${createdOrder.id} with orderReference: ${orderNumber}`);
 
     // Create OrderItem records for each item in the order
     let orderItems: any[] = [];

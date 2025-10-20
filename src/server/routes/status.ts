@@ -62,10 +62,13 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
       externalMerchantId,
     });
 
+    // First try to find order by orderReference alone (in case of duplicate merchants)
     const order = await prisma.order.findFirst({
       where: {
-        restaurantId: restaurant.id,
         orderReference: orderNumber,
+      },
+      include: {
+        restaurant: true,
       },
     });
     
@@ -89,6 +92,17 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
         },
       }).catch(() => {});
       return jsonResponse({ ok: true }, 202);
+    }
+
+    // Verify the order's restaurant has matching externalMerchantId
+    if (order.restaurant.externalMerchantId !== externalMerchantId) {
+      console.error('❌ [StatusWebhook] MerchantId mismatch:', {
+        orderNumber,
+        orderRestaurantId: order.restaurantId,
+        webhookMerchantId: externalMerchantId,
+        orderMerchantId: order.restaurant.externalMerchantId,
+      });
+      return jsonResponse({ error: 'MerchantId mismatch' }, 400);
     }
 
     console.log('✅ [StatusWebhook] Order found:', {
@@ -169,7 +183,7 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
 
     // Publish order update event to Redis for real-time dashboard updates
     try {
-      await eventBus.publishOrder(restaurant.id, {
+      await eventBus.publishOrder(order.restaurantId, {
         type: 'order.updated',
         order: {
           id: updatedOrder.id,
@@ -192,7 +206,7 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
     // Notify customer and send rating prompt once payment is confirmed
     const conversation = await prisma.conversation.findUnique({ where: { id: order.conversationId } });
     const customerPhone = conversation?.customerWa;
-    const fromNumber = restaurant.whatsappNumber || TWILIO_WHATSAPP_FROM;
+    const fromNumber = order.restaurant.whatsappNumber || TWILIO_WHATSAPP_FROM;
 
     console.log('📱 [StatusWebhook] Customer notification check:', {
       orderNumber,
@@ -202,7 +216,7 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
     });
 
     if (customerPhone && fromNumber) {
-      const twilioClient = await twilioClientManager.getClient(restaurant.id);
+      const twilioClient = await twilioClientManager.getClient(order.restaurantId);
       if (twilioClient) {
         let statusMessage: string | null = null;
 
@@ -247,7 +261,7 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
           }
         }
       } else {
-        console.warn('⚠️ [StatusWebhook] No Twilio client available for restaurant:', restaurant.id);
+        console.warn('⚠️ [StatusWebhook] No Twilio client available for restaurant:', order.restaurantId);
       }
     } else {
       console.warn('⚠️ [StatusWebhook] Cannot send customer notification - missing phone or from number');
@@ -256,7 +270,7 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
     // Log webhook
     await prisma.webhookLog.create({
       data: {
-        restaurantId: restaurant.id,
+        restaurantId: order.restaurantId,
         requestId: crypto.randomUUID(),
         method: 'POST',
         path: '/status',
@@ -269,7 +283,8 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
     console.log('✅ [StatusWebhook] Webhook processed successfully:', {
       orderNumber,
       orderId: order.id,
-      restaurantId: restaurant.id,
+      restaurantId: order.restaurantId,
+      restaurantName: order.restaurant.name,
       paymentApproved: isPaymentApproved,
       confirmationSent: shouldSendPaymentContinuation,
     });
