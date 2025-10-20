@@ -152,7 +152,9 @@ export async function checkDeliveryAvailability(
   }
   
   console.log(`[Sufrah API] Checking delivery availability for merchant: ${merchantId}, lat: ${latitude}, lng: ${longitude}`);
-  const available = await request<boolean>(`external/addresses/check-availability?MerchantId=${merchantId}&Lat=${latitude}&Lng=${longitude}`);
-  console.log(`[Sufrah API] Delivery availability: ${available}`);
+  const available = await request<boolean>(`addresses/check-availability?MerchantId=${merchantId}&Lat=${latitude}&Lng=${longitude}`);
+  console.log(`[Sufrah API] Delivery availability response:`, available);
+  console.log(`[Sufrah API] Delivery availability type:`, typeof available);
+  console.log(`[Sufrah API] Delivery is ${available === true ? 'AVAILABLE' : 'NOT AVAILABLE'}`);
   return available;
 }

@@ -338,7 +338,7 @@ export async function submitExternalOrder(
 
   const customerName = session?.customerName || state.customerName || 'ضيف سُفرة';
 
-  const commandPayload = {
+  const commandPayload: any = {
     branchId: branchId ?? undefined,
     merchantId,
     orderType,
@@ -347,6 +347,20 @@ export async function submitExternalOrder(
     customerName,
     customerPhone: sanitizedCustomerPhone,
   };
+
+  // Add latitude and longitude for delivery orders
+  if (orderType === 'Delivery') {
+    const latitude = state.latitude;
+    const longitude = state.longitude;
+    
+    if (latitude && longitude) {
+      commandPayload.lat = latitude;
+      commandPayload.lng = longitude;
+      console.log(`📍 [OrderSubmission] Including delivery coordinates: lat=${latitude}, lng=${longitude}`);
+    } else {
+      console.warn(`⚠️ [OrderSubmission] Delivery order missing coordinates. lat=${latitude}, lng=${longitude}`);
+    }
+  }
 
   console.log(
     `🚀 [OrderSubmission] Submitting order for ${normalizedConversationId} to Sufrah with payload:`,
