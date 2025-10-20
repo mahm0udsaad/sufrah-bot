@@ -52,8 +52,15 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
       where: { externalMerchantId },
     });
     if (!restaurant) {
+      console.error('❌ [StatusWebhook] Restaurant not found for merchantId:', externalMerchantId);
       return jsonResponse({ error: 'Restaurant not found for merchantId' }, 404);
     }
+
+    console.log('✅ [StatusWebhook] Restaurant found:', {
+      restaurantId: restaurant.id,
+      restaurantName: restaurant.name,
+      externalMerchantId,
+    });
 
     const order = await prisma.order.findFirst({
       where: {
@@ -61,7 +68,14 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
         orderReference: orderNumber,
       },
     });
+    
     if (!order) {
+      console.warn('⚠️ [StatusWebhook] Order not found in database:', {
+        orderNumber,
+        restaurantId: restaurant.id,
+        restaurantName: restaurant.name,
+        note: 'This might be normal if the webhook arrives before order is saved',
+      });
       // Log but accept
       await prisma.webhookLog.create({
         data: {
@@ -76,6 +90,14 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
       }).catch(() => {});
       return jsonResponse({ ok: true }, 202);
     }
+
+    console.log('✅ [StatusWebhook] Order found:', {
+      orderId: order.id,
+      orderReference: order.orderReference,
+      paymentMethod: order.paymentMethod,
+      currentStatus: order.status,
+      conversationId: order.conversationId,
+    });
 
     // Update order meta and optionally status
     const meta = (order.meta && typeof order.meta === 'object') ? { ...(order.meta as any) } : {};
