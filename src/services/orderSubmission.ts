@@ -519,6 +519,13 @@ export async function submitExternalOrder(
 
     createdOrderId = createdOrder.id;
 
+    // Update the order with the actual Sufrah order number
+    await prisma.order.update({
+      where: { id: createdOrder.id },
+      data: { orderReference: orderNumber.toString() },
+    });
+    console.log(`🔄 [OrderSubmission] Updated order ${createdOrder.id} with orderReference: ${orderNumber}`);
+
     // Create OrderItem records for each item in the order
     let orderItems: any[] = [];
     if (sessionItems.length > 0) {
