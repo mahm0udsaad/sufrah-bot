@@ -20,14 +20,28 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
       status?: unknown;
       paymentStatus?: unknown;
       merchantId?: unknown;
+      branchId?: unknown;
     };
 
     const orderNumber = typeof body.orderNumber === 'string' ? body.orderNumber.trim() : '';
     const status = typeof body.status === 'string' ? body.status.trim() : '';
     const paymentStatus = typeof body.paymentStatus === 'string' ? body.paymentStatus.trim() : '';
     const externalMerchantId = typeof body.merchantId === 'string' ? body.merchantId.trim() : '';
+    const branchId = typeof body.branchId === 'string' ? body.branchId.trim() : '';
+
+    // Log all incoming webhook data for debugging
+    console.log('📥 [StatusWebhook] Received webhook:', {
+      orderNumber,
+      status,
+      paymentStatus,
+      merchantId: externalMerchantId,
+      branchId,
+      rawBody: body,
+      timestamp: new Date().toISOString(),
+    });
 
     if (!orderNumber || !externalMerchantId) {
+      console.error('❌ [StatusWebhook] Missing required fields:', { orderNumber, merchantId: externalMerchantId });
       return jsonResponse({ error: 'orderNumber and merchantId are required' }, 400);
     }
 
@@ -53,7 +67,7 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
           method: 'POST',
           path: '/status',
           headers: {},
-          body: { orderNumber, status, paymentStatus, merchantId: externalMerchantId, note: 'Order not found' },
+          body: { orderNumber, status, paymentStatus, merchantId: externalMerchantId, branchId, note: 'Order not found' },
           statusCode: 202,
         },
       }).catch(() => {});
@@ -62,16 +76,35 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
 
     // Update order meta and optionally status
     const meta = (order.meta && typeof order.meta === 'object') ? { ...(order.meta as any) } : {};
+    
+    // Payment status check - handle exact case "Paid" and lowercase variations
+    // Expected values: "Paid", "Refunded", "Failed", "Pending"
     const normalizedPaymentStatus = paymentStatus ? paymentStatus.trim().toLowerCase() : '';
     const normalizedStatus = status ? status.trim().toLowerCase() : '';
     const paymentSuccessKeywords = ['paid', 'success', 'succeeded', 'completed', 'confirmed', 'captured', 'authorized'];
-    const isPaymentApproved = paymentSuccessKeywords.some((keyword) =>
-      normalizedPaymentStatus === keyword || normalizedStatus === keyword
-    );
+    
+    const isPaymentApproved = 
+      paymentStatus === 'Paid' || // Exact match for "Paid" with capital P
+      paymentSuccessKeywords.some((keyword) =>
+        normalizedPaymentStatus === keyword || normalizedStatus === keyword
+      );
+    
     const isOnlinePayment = (order.paymentMethod || '').toLowerCase() === 'online';
     const alreadyNotified = typeof meta.paymentConfirmationNotifiedAt === 'string' && meta.paymentConfirmationNotifiedAt.length > 0;
     const shouldSendPaymentContinuation = isPaymentApproved && isOnlinePayment && !alreadyNotified;
     const nowIso = new Date().toISOString();
+    
+    // Log payment decision logic
+    console.log('💳 [StatusWebhook] Payment decision:', {
+      orderNumber,
+      paymentStatus,
+      status,
+      isPaymentApproved,
+      isOnlinePayment,
+      alreadyNotified,
+      shouldSendPaymentContinuation,
+      orderPaymentMethod: order.paymentMethod,
+    });
 
     if (isPaymentApproved && isOnlinePayment && alreadyNotified) {
       console.log(`ℹ️ [StatusWebhook] Payment confirmation already processed for order ${order.id}, skipping follow-up.`);
@@ -82,6 +115,7 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
       status,
       paymentStatus,
       merchantId: externalMerchantId,
+      branchId,
       receivedAt: nowIso,
     };
 
@@ -135,6 +169,13 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
     const customerPhone = conversation?.customerWa;
     const fromNumber = restaurant.whatsappNumber || TWILIO_WHATSAPP_FROM;
 
+    console.log('📱 [StatusWebhook] Customer notification check:', {
+      orderNumber,
+      hasCustomerPhone: !!customerPhone,
+      hasFromNumber: !!fromNumber,
+      conversationId: order.conversationId,
+    });
+
     if (customerPhone && fromNumber) {
       const twilioClient = await twilioClientManager.getClient(restaurant.id);
       if (twilioClient) {
@@ -142,15 +183,19 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
 
         if (shouldSendPaymentContinuation) {
           statusMessage = `✅ تم تأكيد الدفع لطلبك رقم ${orderNumber}. شكرًا لك!`;
+          console.log('💬 [StatusWebhook] Sending payment confirmation message to customer:', customerPhone);
         } else if (status || paymentStatus) {
           statusMessage = `ℹ️ تحديث حالة طلبك رقم ${orderNumber}: ${status || paymentStatus}`;
+          console.log('💬 [StatusWebhook] Sending status update message to customer:', customerPhone);
         }
 
         if (statusMessage) {
           await sendTextMessage(twilioClient, fromNumber, customerPhone, statusMessage);
+          console.log('✅ [StatusWebhook] Status message sent successfully');
         }
 
         if (shouldSendPaymentContinuation) {
+          console.log('⭐ [StatusWebhook] Sending rating prompt to customer');
           try {
             const ratingSid = await getCachedContentSid(
               'rating_list',
@@ -163,17 +208,24 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
               await sendContentMessage(twilioClient, fromNumber, customerPhone, ratingSid, {
                 logLabel: 'Rating list sent',
               });
+              console.log('✅ [StatusWebhook] Rating content template sent successfully');
             }
-          } catch {
+          } catch (err) {
+            console.log('⚠️ [StatusWebhook] Rating template failed, sending fallback text:', err);
             await sendTextMessage(
               twilioClient,
               fromNumber,
               customerPhone,
               '⭐ كيف تقيم تجربتك؟ أرسل رقم من 1 إلى 5.'
             );
+            console.log('✅ [StatusWebhook] Rating fallback text sent successfully');
           }
         }
+      } else {
+        console.warn('⚠️ [StatusWebhook] No Twilio client available for restaurant:', restaurant.id);
       }
+    } else {
+      console.warn('⚠️ [StatusWebhook] Cannot send customer notification - missing phone or from number');
     }
 
     // Log webhook
@@ -184,10 +236,18 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
         method: 'POST',
         path: '/status',
         headers: {},
-        body: { orderNumber, status, paymentStatus, merchantId: externalMerchantId },
+        body: { orderNumber, status, paymentStatus, merchantId: externalMerchantId, branchId },
         statusCode: 200,
       },
     }).catch(() => {});
+
+    console.log('✅ [StatusWebhook] Webhook processed successfully:', {
+      orderNumber,
+      orderId: order.id,
+      restaurantId: restaurant.id,
+      paymentApproved: isPaymentApproved,
+      confirmationSent: shouldSendPaymentContinuation,
+    });
 
     return jsonResponse({ ok: true });
   } catch (err) {
