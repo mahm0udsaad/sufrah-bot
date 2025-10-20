@@ -23,7 +23,10 @@ export async function handleStatus(req: Request, url: URL): Promise<Response | n
       branchId?: unknown;
     };
 
-    const orderNumber = typeof body.orderNumber === 'string' ? body.orderNumber.trim() : '';
+    // Handle orderNumber as either string or number
+    const orderNumber = body.orderNumber 
+      ? (typeof body.orderNumber === 'string' ? body.orderNumber.trim() : String(body.orderNumber))
+      : '';
     const status = typeof body.status === 'string' ? body.status.trim() : '';
     const paymentStatus = typeof body.paymentStatus === 'string' ? body.paymentStatus.trim() : '';
     const externalMerchantId = typeof body.merchantId === 'string' ? body.merchantId.trim() : '';
