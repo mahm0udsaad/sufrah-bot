@@ -519,13 +519,6 @@ export async function sendMenuCategories(
     return;
   }
 
-  await sendTextMessage(
-    client,
-    fromNumber,
-    phoneNumber,
-    '📋 إليك الفئات المتاحة، اختر ما يناسبك من القائمة التالية:'
-  );
-
   try {
     // Split categories into chunks of 10
     const totalPages = Math.ceil(categories.length / MAX_LIST_PICKER_ITEMS);
@@ -598,13 +591,6 @@ export async function sendBranchSelection(
     );
     return;
   }
-
-  await sendTextMessage(
-    client,
-    fromNumber,
-    phoneNumber,
-    '🏢 يرجى اختيار الفرع الذي تود استلام الطلب منه:'
-  );
 
   try {
     // Split branches into chunks of 10
