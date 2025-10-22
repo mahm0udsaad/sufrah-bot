@@ -6,11 +6,27 @@ export const NODE_ENV = process.env.NODE_ENV || 'development';
 export const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 export const REDIS_PORT = process.env.REDIS_PORT || 6379;
 export const REDIS_PASSWORD = process.env.REDIS_PASSWORD || '';
+export const REDIS_TLS = process.env.REDIS_TLS === 'true';
 // Database
 export const DATABASE_URL = process.env.DATABASE_URL || '';
 
 // Redis (for queue & pub/sub)
-export const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const rawRedisUrl = process.env.REDIS_URL || '';
+
+function buildRedisUrl(): string {
+  if (rawRedisUrl && rawRedisUrl.includes('://')) {
+    return rawRedisUrl;
+  }
+
+  const protocol = REDIS_TLS ? 'rediss' : 'redis';
+  const auth = REDIS_PASSWORD ? `:${encodeURIComponent(REDIS_PASSWORD)}@` : '';
+  const host = REDIS_HOST || 'localhost';
+  const port = REDIS_PORT || 6379;
+
+  return `${protocol}://${auth}${host}:${port}`;
+}
+
+export const REDIS_URL = buildRedisUrl();
 export const EVENT_BUS = (process.env.EVENT_BUS || 'redis') as 'redis' | 'pg';
 
 // Twilio (master account or default)
@@ -50,8 +66,10 @@ export const RATE_LIMIT_MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUEST
 
 // Queue settings
 export const OUTBOUND_QUEUE_NAME = process.env.OUTBOUND_QUEUE_NAME || 'whatsapp-outbound';
+export const WHATSAPP_SEND_QUEUE_NAME = process.env.WHATSAPP_SEND_QUEUE_NAME || 'whatsapp-send';
 export const QUEUE_RETRY_ATTEMPTS = Number(process.env.QUEUE_RETRY_ATTEMPTS || 3);
 export const QUEUE_BACKOFF_DELAY = Number(process.env.QUEUE_BACKOFF_DELAY || 5000);
+export const WHATSAPP_SEND_QUEUE_ENABLED = process.env.WHATSAPP_SEND_QUEUE_ENABLED !== 'false'; // Default enabled
 
 export const TWILIO_CONTENT_AUTH = Buffer.from(
   `${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`

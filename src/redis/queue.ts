@@ -25,6 +25,14 @@ export interface OutboundMessageJob {
   messageType?: string;
 }
 
+// Job data type for welcome bootstrap
+export interface WelcomeBootstrapJob {
+  restaurantId: string;
+  merchantId: string;
+  customerWa: string;
+  profileName?: string;
+}
+
 // Create Redis connection for BullMQ
 const connection = new Redis(REDIS_URL, {
   maxRetriesPerRequest: null,

@@ -3,6 +3,17 @@ import { sendContentMessage, sendTextMessage } from '../twilio/messaging';
 import { createContent } from '../twilio/content';
 import { ensureWhatsAppAddress, normalizePhoneNumber, standardizeWhatsappNumber } from '../utils/phone';
 import { buildCategoriesFallback, matchesAnyTrigger, splitLongMessage } from '../utils/text';
+import { hashObject } from '../utils/hash';
+import {
+  normalizeCategoryData,
+  normalizeBranchData,
+  normalizeItemData,
+  normalizeQuantityData,
+  normalizeRemoveItemData,
+  generateDataSignature,
+  getHashSuffix,
+  sanitizeIdForName,
+} from '../utils/dataSignature';
 import { getReadableAddress } from '../utils/geocode';
 import { TWILIO_CONTENT_AUTH, SUPPORT_CONTACT } from '../config';
 import {
@@ -65,6 +76,7 @@ import { getGlobalBotEnabled, hasWelcomed, markWelcomed } from '../state/bot';
 import { stopOrderStatusSimulation, startOrderStatusSimulation } from './orderStatus';
 import { parseRatingFromReply, isPositiveRating, createSorryMessageText } from '../workflows/ratingTemplates';
 import { setOrderRating, markRatingAsked } from '../db/orderService';
+import { trackMessage } from '../services/usageTracking';
 
 const DEFAULT_CURRENCY = 'ر.س';
 
@@ -529,10 +541,26 @@ export async function sendMenuCategories(
       const pageCategories = categories.slice(startIdx, endIdx);
       
       const cacheKey = `categories:${merchantId}:p${page}`;
+      const normalizedData = normalizeCategoryData(pageCategories, { page, merchantId });
+      const dataSignature = generateDataSignature(normalizedData);
+
+      const safeMerchantId = sanitizeIdForName(merchantId);
+      const friendlyName = `food_list_${safeMerchantId}_${page}_${getHashSuffix(dataSignature)}`;
+
       const contentSid = await getCachedContentSid(
         cacheKey,
-        () => createFoodListPicker(TWILIO_CONTENT_AUTH, pageCategories, page),
-        'تصفح قائمتنا:'
+        () => createFoodListPicker(TWILIO_CONTENT_AUTH, pageCategories, page, { friendlyName }),
+        'تصفح قائمتنا:',
+        {
+          dataSignature,
+          friendlyName,
+          metadata: {
+            merchantId,
+            page,
+            itemCount: pageCategories.length,
+            categoryIds: pageCategories.map((category) => category.id),
+          },
+        }
       );
       await sendContentMessage(client, fromNumber, phoneNumber, contentSid, {
         variables: { "1": "اليوم" },
@@ -602,10 +630,26 @@ export async function sendBranchSelection(
       const pageBranches = branches.slice(startIdx, endIdx);
       
       const cacheKey = `branch_list:${merchantId}:p${page}`;
+      const normalizedData = normalizeBranchData(pageBranches, { page, merchantId });
+      const dataSignature = generateDataSignature(normalizedData);
+
+      const safeMerchantId = sanitizeIdForName(merchantId);
+      const friendlyName = `branch_list_${safeMerchantId}_${page}_${getHashSuffix(dataSignature)}`;
+
       const branchSid = await getCachedContentSid(
         cacheKey,
-        () => createBranchListPicker(TWILIO_CONTENT_AUTH, pageBranches, page),
-        'اختر الفرع الأقرب لك:'
+        () => createBranchListPicker(TWILIO_CONTENT_AUTH, pageBranches, page, { friendlyName }),
+        'اختر الفرع الأقرب لك:',
+        {
+          dataSignature,
+          friendlyName,
+          metadata: {
+            merchantId,
+            page,
+            branchCount: pageBranches.length,
+            branchIds: pageBranches.map((branch) => branch.id),
+          },
+        }
       );
       await sendContentMessage(client, fromNumber, phoneNumber, branchSid, {
         logLabel: `Branch list picker sent (page ${page}/${totalPages})`
@@ -765,6 +809,21 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       return;
     }
 
+    // Track message for usage/billing (detects new 24h sessions)
+    try {
+      const usageResult = await trackMessage(
+        restaurantContext.id,
+        standardizeWhatsappNumber(phoneNumber) || phoneNumber
+      );
+      
+      if (usageResult.sessionInfo.isNewSession) {
+        console.log(`📊 New 24h conversation session started for restaurant ${restaurantContext.id}. Monthly count: ${usageResult.monthlyUsage.conversationCount}`);
+      }
+    } catch (error) {
+      console.error('❌ Error tracking message usage:', error);
+      // Continue processing - don't block on tracking errors
+    }
+
     const twilioClientManager = new TwilioClientManager();
     const twilioClient = await twilioClientManager.getClient(restaurantContext.id);
     if (!twilioClient) {
@@ -851,10 +910,41 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
           const endIdx = startIdx + MAX_LIST_PICKER_ITEMS;
           const pageItems = items.slice(startIdx, endIdx);
           
+          const cacheKey = `items_list:${merchantId}:${category.id}:p${page}`;
+          const normalizedData = normalizeItemData(pageItems, {
+            page,
+            categoryId: category.id,
+            merchantId,
+          });
+          const dataSignature = generateDataSignature(normalizedData);
+
+          const safeMerchantId = sanitizeIdForName(merchantId);
+          const safeCategoryId = sanitizeIdForName(category.id);
+          const friendlyName = `items_list_${safeMerchantId}_${safeCategoryId}_${page}_${getHashSuffix(dataSignature)}`;
+
           const contentSid = await getCachedContentSid(
-            `items_list:${merchantId}:${category.id}:p${page}`,
-            () => createItemsListPicker(TWILIO_CONTENT_AUTH, category.id, category.item, pageItems, page),
-            `اختر طبقاً من ${category.item}:`
+            cacheKey,
+            () =>
+              createItemsListPicker(
+                TWILIO_CONTENT_AUTH,
+                category.id,
+                category.item,
+                pageItems,
+                page,
+                { friendlyName }
+              ),
+            `اختر طبقاً من ${category.item}:`,
+            {
+              dataSignature,
+              friendlyName,
+              metadata: {
+                merchantId,
+                categoryId: category.id,
+                page,
+                itemCount: pageItems.length,
+                itemIds: pageItems.map((item) => item.id),
+              },
+            }
           );
           await sendBotContent(contentSid, {
             variables: { '1': category.item },
@@ -911,8 +1001,21 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       );
 
       try {
-        const quantitySid = await getCachedContentSid('quantity_prompt', () =>
-          createQuantityQuickReply(TWILIO_CONTENT_AUTH, picked.item, 1)
+        const normalizedData = normalizeQuantityData(picked.item, MAX_ITEM_QUANTITY);
+        const dataSignature = generateDataSignature(normalizedData);
+        const cacheKey = `quantity_prompt:${sanitizeIdForName(picked.item, 12)}`;
+        
+        const quantitySid = await getCachedContentSid(
+          cacheKey,
+          () => createQuantityQuickReply(TWILIO_CONTENT_AUTH, picked.item, 1),
+          `كم ترغب من ${picked.item}؟`,
+          {
+            dataSignature,
+            metadata: {
+              itemName: picked.item,
+              maxQuantity: MAX_ITEM_QUANTITY,
+            },
+          }
         );
         await sendBotContent(quantitySid, {
           variables: { 1: picked.item, 2: '1' },
@@ -1682,12 +1785,23 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
           const endIdx = startIdx + MAX_LIST_PICKER_ITEMS;
           const pageCartItems = cartItems.slice(startIdx, endIdx);
           
-          const removeSid = await createRemoveItemListQuickReply(
-            TWILIO_CONTENT_AUTH,
-            pageCartItems,
-            page
+          const cacheKey = `remove_item:${phoneNumber}:p${page}`;
+          const normalizedData = normalizeRemoveItemData(pageCartItems, { page });
+          const dataSignature = generateDataSignature(normalizedData);
+          
+          const removeSid = await getCachedContentSid(
+            cacheKey,
+            () => createRemoveItemListQuickReply(TWILIO_CONTENT_AUTH, pageCartItems, page),
+            'اختر الصنف الذي ترغب في حذفه من السلة:',
+            {
+              dataSignature,
+              metadata: {
+                page,
+                itemCount: pageCartItems.length,
+                itemIds: pageCartItems.map((item) => item.id),
+              },
+            }
           );
-          registerTemplateTextForSid(removeSid, 'اختر الصنف الذي ترغب في حذفه من السلة:');
           await sendBotContent(removeSid, {
             logLabel: `Remove item list sent (page ${page}/${totalPages})`
           });

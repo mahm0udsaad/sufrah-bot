@@ -4,6 +4,10 @@ import { MAX_ITEM_QUANTITY, type BranchOption, type MenuItem, type MenuCategory 
 const MAX_LIST_PICKER_ITEMS = 10;
 const MAX_DESCRIPTION_LENGTH = 72; // Twilio's limit for list picker item descriptions
 
+interface FriendlyNameOptions {
+  friendlyName?: string;
+}
+
 /**
  * Splits an array into chunks of specified size
  */
@@ -49,8 +53,10 @@ export async function createOrderTypeQuickReply(auth: string): Promise<string> {
 export async function createFoodListPicker(
   auth: string,
   categories: MenuCategory[],
-  page: number = 1
-): Promise<string> {
+  page: number = 1,
+  options: FriendlyNameOptions = {}
+): Promise<{ sid: string; friendlyName: string }> {
+  const friendlyName = options.friendlyName ?? `food_list_${Date.now()}_p${page}`;
   const items = categories.map((category) => ({
     id: `cat_${category.id}`,
     item: category.item,
@@ -61,7 +67,7 @@ export async function createFoodListPicker(
   const pageIndicator = totalPages > 1 ? ` (صفحة ${page} من ${totalPages})` : '';
 
   const payload = {
-    friendly_name: `food_list_${Date.now()}_p${page}`,
+    friendly_name: friendlyName,
     language: 'ar',
     variables: { '1': 'اليوم' },
     types: {
@@ -76,14 +82,17 @@ export async function createFoodListPicker(
     },
   };
 
-  return createContent(auth, payload, `Dynamic list picker created (page ${page})`);
+  const sid = await createContent(auth, payload, `Dynamic list picker created (page ${page})`);
+  return { sid, friendlyName };
 }
 
 export async function createBranchListPicker(
   auth: string,
   branches: BranchOption[],
-  page: number = 1
-): Promise<string> {
+  page: number = 1,
+  options: FriendlyNameOptions = {}
+): Promise<{ sid: string; friendlyName: string }> {
+  const friendlyName = options.friendlyName ?? `branch_list_${Date.now()}_p${page}`;
   const pickerItems = branches.map((branch) => ({
     id: `branch_${branch.id}`,
     item: branch.item,
@@ -94,7 +103,7 @@ export async function createBranchListPicker(
   const pageIndicator = totalPages > 1 ? ` (صفحة ${page} من ${totalPages})` : '';
 
   const payload = {
-    friendly_name: `branch_list_${Date.now()}_p${page}`,
+    friendly_name: friendlyName,
     language: 'ar',
     types: {
       'twilio/list-picker': {
@@ -110,7 +119,8 @@ export async function createBranchListPicker(
     },
   } as any;
 
-  return createContent(auth, payload, `Branch list picker created (page ${page})`);
+  const sid = await createContent(auth, payload, `Branch list picker created (page ${page})`);
+  return { sid, friendlyName };
 }
 
 export async function createItemsListPicker(
@@ -118,8 +128,11 @@ export async function createItemsListPicker(
   categoryId: string,
   itemLabel: string,
   items: MenuItem[],
-  page: number = 1
-): Promise<string> {
+  page: number = 1,
+  options: FriendlyNameOptions = {}
+): Promise<{ sid: string; friendlyName: string }> {
+  const friendlyName =
+    options.friendlyName ?? `items_list_${categoryId}_${Date.now()}_p${page}`;
   const listItems = items.map((item) => {
     const priceText = `${item.price} ${item.currency || 'ر.س'}`;
     const fullDescription = item.description
@@ -137,7 +150,7 @@ export async function createItemsListPicker(
   const pageIndicator = totalPages > 1 ? ` (صفحة ${page} من ${totalPages})` : '';
 
   const payload = {
-    friendly_name: `items_list_${categoryId}_${Date.now()}_p${page}`,
+    friendly_name: friendlyName,
     language: 'ar',
     variables: { '1': itemLabel || 'القسم' },
     types: {
@@ -154,7 +167,12 @@ export async function createItemsListPicker(
     },
   } as any;
 
-  return createContent(auth, payload, `Dynamic items list picker created for ${categoryId} (page ${page})`);
+  const sid = await createContent(
+    auth,
+    payload,
+    `Dynamic items list picker created for ${categoryId} (page ${page})`
+  );
+  return { sid, friendlyName };
 }
 
 export async function createPostItemChoiceQuickReply(auth: string): Promise<string> {

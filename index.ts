@@ -4,6 +4,7 @@ import { mapConversationToApi, mapMessageToApi } from './src/workflows/mappers';
 import { broadcast, notifyBotStatus } from './src/workflows/events';
 import { getActiveCartsCount } from './src/state/orders';
 import { getConversations, onMessageAppended, onConversationUpdated, setConversationData } from './src/state/conversations';
+import { startMetricsLogging } from './src/services/templateCacheMetrics';
 
 let welcomeContentSid = process.env.CONTENT_SID_WELCOME || '';
 
@@ -18,15 +19,35 @@ seedCacheFromKey('payment_options', process.env.CONTENT_SID_PAYMENT_OPTIONS || '
 seedCacheFromKey('branch_list', process.env.CONTENT_SID_BRANCH_LIST || '');
 seedCacheFromKey('rating_list', process.env.CONTENT_SID_RATING_LIST || '');
 
+// Start cache metrics logging
+startMetricsLogging(5 * 60 * 1000); // Log every 5 minutes
+console.log('📊 Template cache metrics logging started');
+
 import { baseHeaders, jsonResponse } from './src/server/http';
 import { handleStatus } from './src/server/routes/status';
 import { handleWhatsAppSend } from './src/server/routes/api/notify';
 import { handleAdmin } from './src/server/routes/admin';
 import { handleTwilioForm, handleVerify, handleMeta } from './src/server/routes/webhooks';
-import { handleConversationsApi } from './src/server/routes/api/conversations';
+// Legacy in-memory conversations API removed - use DB-backed API instead
 import { handleConversationsDbApi } from './src/server/routes/api/conversationsDb';
-import { handleRatingsApi } from './src/server/routes/api/ratings';
+// Legacy ratings API removed - use dashboard API instead
+import { handleUsageApi } from './src/server/routes/api/usage';
 import { getGlobalBotEnabled, setGlobalBotEnabled, getWelcomedUsersCount } from './src/state/bot';
+
+// Dashboard API imports
+import { handleTenantsApi } from './src/server/routes/api/tenants';
+import { handleBotApi } from './src/server/routes/api/bot';
+import { handleConversationsApi as handleConversationsDashboardApi } from './src/server/routes/dashboard/conversations';
+import { handleOrdersApi } from './src/server/routes/dashboard/orders';
+import { handleRatingsApi as handleRatingsDashboardApi } from './src/server/routes/dashboard/ratings';
+import { handleLogsApi } from './src/server/routes/dashboard/logs';
+import { handleCatalogApi } from './src/server/routes/dashboard/catalog';
+import { handleTemplatesApi } from './src/server/routes/dashboard/templates';
+import { handleSettingsApi } from './src/server/routes/dashboard/settings';
+import { handleNotificationsApi } from './src/server/routes/dashboard/notifications';
+import { handleOnboardingApi } from './src/server/routes/dashboard/onboarding';
+import { handleAdminApi } from './src/server/routes/dashboard/admin';
+import { handleHealthApi } from './src/server/routes/dashboard/health';
 
 // Removed business logic helpers; they now live in dedicated modules
 
@@ -96,21 +117,68 @@ const server = Bun.serve({
     const metaResponse = await handleMeta(req, url);
     if (metaResponse) return metaResponse;
 
+    // Dashboard API endpoints
+    const tenantsResponse = await handleTenantsApi(req, url);
+    if (tenantsResponse) return tenantsResponse;
+
+    const botResponse = await handleBotApi(req, url);
+    if (botResponse) return botResponse;
+
+    const conversationsDashboardResponse = await handleConversationsDashboardApi(req, url);
+    if (conversationsDashboardResponse) return conversationsDashboardResponse;
+
+    const ordersResponse = await handleOrdersApi(req, url);
+    if (ordersResponse) return ordersResponse;
+
+    const ratingsDashboardResponse = await handleRatingsDashboardApi(req, url);
+    if (ratingsDashboardResponse) return ratingsDashboardResponse;
+
+    const logsResponse = await handleLogsApi(req, url);
+    if (logsResponse) return logsResponse;
+
+    const catalogResponse = await handleCatalogApi(req, url);
+    if (catalogResponse) return catalogResponse;
+
+    const templatesResponse = await handleTemplatesApi(req, url);
+    if (templatesResponse) return templatesResponse;
+
+    const settingsResponse = await handleSettingsApi(req, url);
+    if (settingsResponse) return settingsResponse;
+
+    const notificationsResponse = await handleNotificationsApi(req, url);
+    if (notificationsResponse) return notificationsResponse;
+
+    const onboardingResponse = await handleOnboardingApi(req, url);
+    if (onboardingResponse) return onboardingResponse;
+
+    const adminDashboardResponse = await handleAdminApi(req, url);
+    if (adminDashboardResponse) return adminDashboardResponse;
+
+    const healthResponse = await handleHealthApi(req, url);
+    if (healthResponse) return healthResponse;
+
     // Database-backed Conversations API (use this for dashboard)
     const convDbResponse = await handleConversationsDbApi(req, url);
     if (convDbResponse) return convDbResponse;
 
-    // Ratings API (for dashboard)
-    const ratingsResponse = await handleRatingsApi(req, url);
-    if (ratingsResponse) return ratingsResponse;
+    // Legacy ratings API removed - use dashboard API instead
 
-    // Conversations API (legacy in-memory)
-    const convResponse = await handleConversationsApi(req, url);
-    if (convResponse) return convResponse;
+    // Usage API (for dashboard)
+    const usageResponse = await handleUsageApi(req, url);
+    if (usageResponse) return usageResponse;
+
+    // Legacy in-memory conversations API removed - use dashboard or DB API instead
 
     // Admin routes
     const adminResponse = await handleAdmin(req, url);
     if (adminResponse) return adminResponse;
+
+    // Cache metrics endpoint
+    if (req.method === 'GET' && url.pathname === '/api/cache/metrics') {
+      const { getCacheReport } = require('./src/services/templateCacheMetrics');
+      const report = await getCacheReport();
+      return jsonResponse(report);
+    }
 
     // Health check endpoint
     if (req.method === 'GET' && url.pathname === '/health') {

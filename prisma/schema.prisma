@@ -161,29 +161,31 @@ model Order {
 }
 
 model Restaurant {
-  id                 String            @id @default(cuid())
-  userId             String            @unique @map("user_id")
+  id                 String                 @id @default(cuid())
+  userId             String                 @unique @map("user_id")
   name               String
   description        String?
   address            String?
   phone              String?
-  whatsappNumber     String?           @map("whatsapp_number")
-  logoUrl            String?           @map("logo_url")
-  isActive           Boolean           @default(true) @map("is_active")
-  twilioAccountSid   String?           @map("twilio_account_sid")
-  twilioAuthToken    String?           @map("twilio_auth_token")
-  status             OnboardingStatus  @default(PENDING_APPROVAL)
-  createdAt          DateTime          @default(now()) @map("created_at")
-  updatedAt          DateTime          @updatedAt @map("updated_at")
-  externalMerchantId String?           @map("external_merchant_id")
+  whatsappNumber     String?                @map("whatsapp_number")
+  logoUrl            String?                @map("logo_url")
+  isActive           Boolean                @default(true) @map("is_active")
+  twilioAccountSid   String?                @map("twilio_account_sid")
+  twilioAuthToken    String?                @map("twilio_auth_token")
+  status             OnboardingStatus       @default(PENDING_APPROVAL)
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+  externalMerchantId String?                @map("external_merchant_id")
   conversations      Conversation[]
   messages           Message[]
   orders             Order[]
   outboundMessages   OutboundMessage[]
-  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user               User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   usageLogs          UsageLog[]
   webhookLogs        WebhookLog[]
   bots               RestaurantBot[]
+  monthlyUsage       MonthlyUsage[]
+  conversationSessions ConversationSession[]
 
   @@index([userId])
   @@map("RestaurantProfile")
@@ -283,6 +285,55 @@ model User {
   RestaurantProfile       Restaurant?
   Template                Template[]
   files                   File[]
+}
+
+model ContentTemplateCache {
+  id           String   @id @default(cuid())
+  key          String
+  dataHash     String   @map("data_hash")
+  templateSid  String   @map("template_sid")
+  friendlyName String?  @map("friendly_name")
+  metadata     Json?    @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  lastUsedAt   DateTime @default(now()) @map("last_used_at")
+
+  @@unique([key, dataHash])
+  @@index([templateSid])
+  @@map("ContentTemplateCache")
+}
+
+model MonthlyUsage {
+  id                  String     @id @default(cuid())
+  restaurantId        String     @map("restaurant_id")
+  month               Int        @map("month")
+  year                Int        @map("year")
+  conversationCount   Int        @default(0) @map("conversation_count")
+  lastConversationAt  DateTime?  @map("last_conversation_at")
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @updatedAt @map("updated_at")
+  restaurant          Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@unique([restaurantId, month, year])
+  @@index([restaurantId, year, month])
+  @@map("MonthlyUsage")
+}
+
+model ConversationSession {
+  id              String       @id @default(cuid())
+  restaurantId    String       @map("restaurant_id")
+  customerWa      String       @map("customer_wa")
+  sessionStart    DateTime     @map("session_start")
+  sessionEnd      DateTime     @map("session_end")
+  messageCount    Int          @default(0) @map("message_count")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  restaurant      Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@unique([restaurantId, customerWa, sessionStart])
+  @@index([restaurantId, sessionEnd])
+  @@index([customerWa, sessionStart])
+  @@map("ConversationSession")
 }
 
 enum OnboardingStatus {

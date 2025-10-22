@@ -1,9 +1,12 @@
 import { jsonResponse, baseHeaders } from '../../../server/http';
-import { WHATSAPP_SEND_TOKEN, TWILIO_WHATSAPP_FROM } from '../../../config';
+import { WHATSAPP_SEND_TOKEN, TWILIO_WHATSAPP_FROM, WHATSAPP_SEND_QUEUE_ENABLED } from '../../../config';
 import { standardizeWhatsappNumber } from '../../../utils/phone';
 import { getRestaurantByWhatsapp } from '../../../db/sufrahRestaurantService';
 import { TwilioClientManager } from '../../../twilio/clientManager';
 import { sendNotification } from '../../../services/whatsapp';
+import { checkQuota, formatQuotaError } from '../../../services/quotaEnforcement';
+import { enqueueWhatsAppSend } from '../../../redis/whatsappSendQueue';
+import { findOrCreateConversation } from '../../../db/conversationService';
 
 const clientManager = new TwilioClientManager();
 
@@ -111,6 +114,65 @@ export async function handleWhatsAppSend(req: Request, url: URL): Promise<Respon
   // Try to get restaurant-specific client, but allow fallback to global client
   const restaurant = await getRestaurantByWhatsapp(fromNumber);
   
+  // Check quota if restaurant is found
+  if (restaurant) {
+    try {
+      const quotaCheck = await checkQuota(restaurant.id);
+      
+      if (!quotaCheck.allowed) {
+        console.warn(`⚠️ Quota exceeded for restaurant ${restaurant.id}: ${quotaCheck.used}/${quotaCheck.limit} conversations used`);
+        return jsonResponse(formatQuotaError(quotaCheck), 429); // 429 Too Many Requests
+      }
+      
+      // Log if nearing quota (90%+)
+      if (quotaCheck.limit > 0) {
+        const usagePercent = (quotaCheck.used / quotaCheck.limit) * 100;
+        if (usagePercent >= 90) {
+          console.warn(`⚠️ Restaurant ${restaurant.id} is at ${usagePercent.toFixed(1)}% quota usage (${quotaCheck.used}/${quotaCheck.limit})`);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error checking quota:', error);
+      // Continue with sending - don't block on quota check errors
+    }
+  }
+  
+  // If queue is enabled, enqueue the message instead of sending immediately
+  if (WHATSAPP_SEND_QUEUE_ENABLED && restaurant) {
+    try {
+      // Find or create conversation for this customer
+      const conversation = await findOrCreateConversation(
+        restaurant.id,
+        standardizedPhone,
+        'unknown' // Profile name unknown for outbound
+      );
+      
+      // Enqueue the send operation with FIFO guarantee per conversation
+      const job = await enqueueWhatsAppSend({
+        restaurantId: restaurant.id,
+        conversationId: conversation.id,
+        phoneNumber: standardizedPhone,
+        text: messageText,
+        fromNumber,
+        templateVariables,
+      });
+      
+      console.log(`📤 [API] Enqueued WhatsApp send job ${job.id} for restaurant ${restaurant.id}`);
+      
+      return jsonResponse({
+        status: 'queued',
+        message: 'Message queued for delivery',
+        jobId: job.id,
+        queuePosition: await job.getState(),
+      });
+    } catch (error) {
+      console.error('❌ Failed to enqueue WhatsApp message:', error);
+      // Fall back to direct send on queue failure
+      console.log('⚠️ Falling back to direct send');
+    }
+  }
+  
+  // Direct send (fallback or when queue disabled)
   let twilioClient;
   if (restaurant) {
     // Use restaurant-specific client
@@ -132,6 +194,31 @@ export async function handleWhatsAppSend(req: Request, url: URL): Promise<Respon
       fromNumber,
       templateVariables,
     });
+
+    // Track usage for direct send (non-queued path)
+    if (restaurant) {
+      try {
+        const { trackUsage } = await import('../../../services/usageTracking');
+        const { findOrCreateConversation } = await import('../../../db/conversationService');
+        
+        const conversation = await findOrCreateConversation(
+          restaurant.id,
+          standardizedPhone,
+          'unknown'
+        );
+        
+        await trackUsage({
+          restaurantId: restaurant.id,
+          conversationId: conversation.id,
+          eventType: 'outbound_direct',
+        });
+        
+        console.log(`📊 [Direct Send] Tracked usage for restaurant ${restaurant.id}`);
+      } catch (trackError) {
+        console.error('❌ Failed to track direct send usage:', trackError);
+        // Don't fail the send if tracking fails
+      }
+    }
 
     return jsonResponse({
       status: 'ok',
