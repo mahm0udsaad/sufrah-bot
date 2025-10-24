@@ -4,10 +4,10 @@
  */
 
 import { jsonResponse } from '../../http';
-import { DASHBOARD_PAT, BOT_API_KEY } from '../../../config';
 import { prisma } from '../../../db/client';
 import { getLocaleFromRequest, createLocalizedResponse, t, formatRelativeTime } from '../../../services/i18n';
 import { getCacheReport } from '../../../services/templateCacheMetrics';
+import { authenticateDashboard } from '../../../utils/dashboardAuth';
 
 type AuthResult = { ok: boolean; restaurantId?: string; userId?: string; isAdmin?: boolean; error?: string };
 
@@ -41,9 +41,9 @@ function authenticate(req: Request): AuthResult {
 export async function handleTemplatesApi(req: Request, url: URL): Promise<Response | null> {
   // GET /api/templates - list templates
   if (url.pathname === '/api/templates' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);
@@ -142,9 +142,9 @@ export async function handleTemplatesApi(req: Request, url: URL): Promise<Respon
   const templateMatch = url.pathname.match(/^\/api\/templates\/([^/]+)$/);
   if (templateMatch && req.method === 'GET') {
     const templateId = templateMatch[1];
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);
@@ -216,9 +216,9 @@ export async function handleTemplatesApi(req: Request, url: URL): Promise<Respon
 
   // GET /api/templates/cache/metrics - cache performance metrics
   if (url.pathname === '/api/templates/cache/metrics' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);
@@ -229,9 +229,9 @@ export async function handleTemplatesApi(req: Request, url: URL): Promise<Respon
 
   // POST /api/templates - create template
   if (url.pathname === '/api/templates' && req.method === 'POST') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const body = await req.json();
@@ -287,9 +287,9 @@ export async function handleTemplatesApi(req: Request, url: URL): Promise<Respon
   // PATCH /api/templates/:id - update template
   if (templateMatch && req.method === 'PATCH') {
     const templateId = templateMatch[1];
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const body = await req.json();
@@ -353,9 +353,9 @@ export async function handleTemplatesApi(req: Request, url: URL): Promise<Respon
   // DELETE /api/templates/:id - delete template
   if (templateMatch && req.method === 'DELETE') {
     const templateId = templateMatch[1];
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);

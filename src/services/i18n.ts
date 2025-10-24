@@ -83,6 +83,70 @@ const strings: LocalizedStrings = {
     en: 'Cancelled',
     ar: 'ملغي',
   },
+  'order.status.unknown': {
+    en: 'Unknown',
+    ar: 'غير معروف',
+  },
+  'order.customer.unknown': {
+    en: 'Unknown',
+    ar: 'غير معروف',
+  },
+  'order.type.delivery': {
+    en: 'Delivery',
+    ar: 'توصيل',
+  },
+  'order.type.takeaway': {
+    en: 'Takeaway',
+    ar: 'استلام من المتجر',
+  },
+  'order.type.dine_in': {
+    en: 'Dine-In',
+    ar: 'تناول في المطعم',
+  },
+  'order.type.from_car': {
+    en: 'Drive Thru',
+    ar: 'استلام من السيارة',
+  },
+  'order.type.other': {
+    en: 'Other',
+    ar: 'أخرى',
+  },
+  'order.payment.online': {
+    en: 'Online Payment',
+    ar: 'دفع إلكتروني',
+  },
+  'order.payment.cash': {
+    en: 'Cash Payment',
+    ar: 'دفع نقدي',
+  },
+  'order.payment.other': {
+    en: 'Other Payment',
+    ar: 'طريقة دفع أخرى',
+  },
+  'order.alert.late': {
+    en: 'Running Late',
+    ar: 'تأخير في التجهيز',
+  },
+  'order.alert.awaiting_payment': {
+    en: 'Awaiting Payment',
+    ar: 'في انتظار الدفع',
+  },
+  'order.alert.requires_review': {
+    en: 'Needs Review',
+    ar: 'يحتاج إلى مراجعة',
+  },
+  'order.alert.none': {
+    en: 'No Alerts',
+    ar: 'لا توجد تنبيهات',
+  },
+  'order.error.not_found': {
+    en: 'Order not found',
+    ar: 'لم يتم العثور على الطلب',
+  },
+  'order.error.no_changes': {
+    en: 'No valid fields to update',
+    ar: 'لا توجد حقول صالحة للتحديث',
+  },
   'conversation.channel.bot': {
     en: 'Bot',
     ar: 'بوت',
@@ -121,14 +185,40 @@ export function t(key: string, locale: Locale = 'en'): string {
 }
 
 /**
+ * Normalize currency code to ISO 4217 standard
+ * Maps currency symbols or invalid codes to proper ISO codes
+ */
+function normalizeCurrency(currency: string | undefined | null): Currency {
+  if (!currency || typeof currency !== 'string') {
+    return 'SAR';
+  }
+
+  const normalized = currency.trim().toUpperCase();
+  
+  // Map currency symbols to ISO codes
+  const currencyMap: { [key: string]: Currency } = {
+    'ر.س': 'SAR',
+    'SR': 'SAR',
+    'SAR': 'SAR',
+    'USD': 'USD',
+    '$': 'USD',
+    'EUR': 'EUR',
+    '€': 'EUR',
+  };
+
+  return currencyMap[normalized] || currencyMap[currency] || 'SAR';
+}
+
+/**
  * Format currency amount
  */
-export function formatCurrency(amountCents: number, currency: Currency = 'SAR', locale: Locale = 'en'): string {
+export function formatCurrency(amountCents: number, currency: Currency | string = 'SAR', locale: Locale = 'en'): string {
   const amount = amountCents / 100;
+  const normalizedCurrency = normalizeCurrency(currency as string);
   
   const formatter = new Intl.NumberFormat(locale === 'ar' ? 'ar-SA' : 'en-US', {
     style: 'currency',
-    currency,
+    currency: normalizedCurrency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -226,3 +316,117 @@ export function createLocalizedResponse<T>(
   };
 }
 
+function normalizeKey(value: string | null | undefined): string {
+  return (value || '').trim().toLowerCase();
+}
+
+/**
+ * Get localized customer display name with fallback
+ */
+export function getCustomerDisplayName(name: string | null | undefined, locale: Locale = 'en'): string {
+  const trimmed = (name || '').trim();
+  if (!trimmed) {
+    return t('order.customer.unknown', locale);
+  }
+  return trimmed;
+}
+
+/**
+ * Get localized label for order type values
+ */
+export function getOrderTypeDisplay(orderType: string | null | undefined, locale: Locale = 'en'): string {
+  const normalized = normalizeKey(orderType);
+
+  switch (normalized) {
+    case 'delivery':
+      return t('order.type.delivery', locale);
+    case 'takeaway':
+    case 'take-away':
+    case 'take_away':
+    case 'pickup':
+    case 'pick-up':
+    case 'pick_up':
+      return t('order.type.takeaway', locale);
+    case 'dinein':
+    case 'dine_in':
+    case 'dine-in':
+      return t('order.type.dine_in', locale);
+    case 'fromcar':
+    case 'from_car':
+    case 'from-car':
+    case 'drive':
+    case 'drive_thru':
+    case 'drive-thru':
+    case 'drivethru':
+      return t('order.type.from_car', locale);
+    case 'other':
+      return t('order.type.other', locale);
+    default:
+      return orderType || t('order.type.other', locale);
+  }
+}
+
+/**
+ * Get localized label for order status values with safe fallback
+ */
+export function getOrderStatusDisplay(status: string | null | undefined, locale: Locale = 'en'): string {
+  const normalized = normalizeKey(status);
+  if (!normalized) {
+    return t('order.status.unknown', locale);
+  }
+
+  const key = `order.status.${normalized}`;
+  const translated = t(key, locale);
+  if (translated === key) {
+    return t('order.status.unknown', locale);
+  }
+
+  return translated;
+}
+
+/**
+ * Get localized label for payment methods
+ */
+export function getPaymentMethodDisplay(paymentMethod: string | null | undefined, locale: Locale = 'en'): string {
+  const normalized = normalizeKey(paymentMethod);
+
+  switch (normalized) {
+    case 'online':
+      return t('order.payment.online', locale);
+    case 'cash':
+      return t('order.payment.cash', locale);
+    case 'card':
+    case 'credit':
+    case 'debit':
+      return t('order.payment.online', locale);
+    case 'other':
+      return t('order.payment.other', locale);
+    default:
+      return paymentMethod || t('order.payment.other', locale);
+  }
+}
+
+interface OrderAlertsInput {
+  isLate?: boolean;
+  awaitingPayment?: boolean;
+  requiresReview?: boolean;
+}
+
+/**
+ * Translate order alert flags into localized messages
+ */
+export function getOrderAlertMessages(alerts: OrderAlertsInput, locale: Locale = 'en'): string[] {
+  const messages: string[] = [];
+
+  if (alerts.isLate) {
+    messages.push(t('order.alert.late', locale));
+  }
+  if (alerts.awaitingPayment) {
+    messages.push(t('order.alert.awaiting_payment', locale));
+  }
+  if (alerts.requiresReview) {
+    messages.push(t('order.alert.requires_review', locale));
+  }
+
+  return messages;
+}

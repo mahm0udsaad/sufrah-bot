@@ -1,5 +1,5 @@
 import { prisma } from './client';
-import type { RestaurantBot } from '@prisma/client';
+import type { RestaurantBot, Restaurant } from '@prisma/client';
 import { standardizeWhatsappNumber, stripPlusPrefix } from '../utils/phone';
 
 /**
@@ -56,8 +56,8 @@ export async function findRestaurantByWhatsAppNumber(
 /**
  * Get restaurant by ID
  */
-export async function getRestaurantById(id: string): Promise<RestaurantBot | null> {
-  return prisma.restaurantBot.findUnique({
+export async function getRestaurantById(id: string): Promise<Restaurant | null> {
+  return prisma.restaurant.findUnique({
     where: { id },
   });
 }

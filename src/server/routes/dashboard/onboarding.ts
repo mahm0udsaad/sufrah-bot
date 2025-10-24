@@ -4,34 +4,11 @@
  */
 
 import { jsonResponse } from '../../http';
-import { DASHBOARD_PAT, BOT_API_KEY } from '../../../config';
 import { prisma } from '../../../db/client';
 import { getLocaleFromRequest, createLocalizedResponse } from '../../../services/i18n';
+import { authenticateDashboard } from '../../../utils/dashboardAuth';
 
-type AuthResult = { ok: boolean; restaurantId?: string; isAdmin?: boolean; error?: string };
 
-function authenticate(req: Request): AuthResult {
-  const authHeader = req.headers.get('authorization') || '';
-  const apiKeyHeader = req.headers.get('x-api-key') || '';
-
-  let token = '';
-  const bearer = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (bearer && bearer[1]) token = bearer[1].trim();
-
-  if (DASHBOARD_PAT && token && token === DASHBOARD_PAT) {
-    const restaurantId = (req.headers.get('x-restaurant-id') || '').trim();
-    if (!restaurantId) {
-      return { ok: false, error: 'X-Restaurant-Id header is required' };
-    }
-    return { ok: true, restaurantId };
-  }
-
-  if (BOT_API_KEY && apiKeyHeader && apiKeyHeader === BOT_API_KEY) {
-    return { ok: true, isAdmin: true };
-  }
-
-  return { ok: false, error: 'Unauthorized' };
-}
 
 interface ChecklistItem {
   id: string;
@@ -121,9 +98,9 @@ async function generateChecklist(restaurantId: string): Promise<ChecklistItem[]>
 export async function handleOnboardingApi(req: Request, url: URL): Promise<Response | null> {
   // GET /api/onboarding
   if (url.pathname === '/api/onboarding' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);
@@ -222,9 +199,9 @@ export async function handleOnboardingApi(req: Request, url: URL): Promise<Respo
   // GET /api/onboarding/phone-numbers - get available phone numbers
   // This would typically integrate with Twilio to fetch available numbers
   if (url.pathname === '/api/onboarding/phone-numbers' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);

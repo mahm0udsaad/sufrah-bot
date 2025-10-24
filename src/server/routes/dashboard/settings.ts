@@ -4,34 +4,11 @@
  */
 
 import { jsonResponse } from '../../http';
-import { DASHBOARD_PAT, BOT_API_KEY } from '../../../config';
 import { prisma } from '../../../db/client';
 import { getLocaleFromRequest, createLocalizedResponse } from '../../../services/i18n';
+import { authenticateDashboard } from '../../../utils/dashboardAuth';
 
-type AuthResult = { ok: boolean; restaurantId?: string; isAdmin?: boolean; error?: string };
 
-function authenticate(req: Request): AuthResult {
-  const authHeader = req.headers.get('authorization') || '';
-  const apiKeyHeader = req.headers.get('x-api-key') || '';
-
-  let token = '';
-  const bearer = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (bearer && bearer[1]) token = bearer[1].trim();
-
-  if (DASHBOARD_PAT && token && token === DASHBOARD_PAT) {
-    const restaurantId = (req.headers.get('x-restaurant-id') || '').trim();
-    if (!restaurantId) {
-      return { ok: false, error: 'X-Restaurant-Id header is required' };
-    }
-    return { ok: true, restaurantId };
-  }
-
-  if (BOT_API_KEY && apiKeyHeader && apiKeyHeader === BOT_API_KEY) {
-    return { ok: true, isAdmin: true };
-  }
-
-  return { ok: false, error: 'Unauthorized' };
-}
 
 /**
  * Handle GET /api/settings/profile
@@ -40,9 +17,9 @@ function authenticate(req: Request): AuthResult {
 export async function handleSettingsApi(req: Request, url: URL): Promise<Response | null> {
   // GET /api/settings/profile
   if (url.pathname === '/api/settings/profile' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);
@@ -98,9 +75,9 @@ export async function handleSettingsApi(req: Request, url: URL): Promise<Respons
 
   // PATCH /api/settings/profile - update profile
   if (url.pathname === '/api/settings/profile' && req.method === 'PATCH') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const body = await req.json();
@@ -137,9 +114,9 @@ export async function handleSettingsApi(req: Request, url: URL): Promise<Respons
 
   // GET /api/settings/audit-logs
   if (url.pathname === '/api/settings/audit-logs' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);

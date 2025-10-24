@@ -4,35 +4,12 @@
  */
 
 import { jsonResponse } from '../../http';
-import { DASHBOARD_PAT, BOT_API_KEY } from '../../../config';
 import { getLocaleFromRequest, createLocalizedResponse, formatRelativeTime } from '../../../services/i18n';
-import { fetchMerchantCategories, fetchMerchantBranches } from '../../../services/sufrahApi';
+import { fetchMerchantCategories, fetchMerchantBranches, fetchCategoryProducts } from '../../../services/sufrahApi';
 import { getRestaurantById } from '../../../db/restaurantService';
+import { authenticateDashboard } from '../../../utils/dashboardAuth';
 
-type AuthResult = { ok: boolean; restaurantId?: string; isAdmin?: boolean; error?: string };
 
-function authenticate(req: Request): AuthResult {
-  const authHeader = req.headers.get('authorization') || '';
-  const apiKeyHeader = req.headers.get('x-api-key') || '';
-
-  let token = '';
-  const bearer = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (bearer && bearer[1]) token = bearer[1].trim();
-
-  if (DASHBOARD_PAT && token && token === DASHBOARD_PAT) {
-    const restaurantId = (req.headers.get('x-restaurant-id') || '').trim();
-    if (!restaurantId) {
-      return { ok: false, error: 'X-Restaurant-Id header is required' };
-    }
-    return { ok: true, restaurantId };
-  }
-
-  if (BOT_API_KEY && apiKeyHeader && apiKeyHeader === BOT_API_KEY) {
-    return { ok: true, isAdmin: true };
-  }
-
-  return { ok: false, error: 'Unauthorized' };
-}
 
 /**
  * Handle GET /api/catalog/categories
@@ -41,9 +18,9 @@ function authenticate(req: Request): AuthResult {
 export async function handleCatalogApi(req: Request, url: URL): Promise<Response | null> {
   // GET /api/catalog/categories
   if (url.pathname === '/api/catalog/categories' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);
@@ -94,11 +71,99 @@ export async function handleCatalogApi(req: Request, url: URL): Promise<Response
     }
   }
 
+  // GET /api/catalog/items
+  if (url.pathname === '/api/catalog/items' && req.method === 'GET') {
+    const auth = await authenticateDashboard(req);
+    if (!auth.ok || !auth.restaurantId) {
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
+    }
+
+    const locale = getLocaleFromRequest(req);
+    const categoryId = url.searchParams.get('categoryId');
+
+    const restaurant = await getRestaurantById(auth.restaurantId);
+    if (!restaurant) {
+      return jsonResponse({ error: 'Restaurant not found' }, 404);
+    }
+
+    if (!restaurant.externalMerchantId) {
+      return jsonResponse({ error: 'Restaurant not linked to Sufrah merchant' }, 400);
+    }
+
+    try {
+      let allItems: any[] = [];
+
+      if (categoryId) {
+        // Fetch items for specific category
+        allItems = await fetchCategoryProducts(categoryId);
+      } else {
+        // Fetch all categories first, then get items from all of them
+        const categories = await fetchMerchantCategories(restaurant.externalMerchantId);
+        
+        // Fetch items from all categories in parallel
+        const itemsPromises = categories.map(async (cat: any) => {
+          try {
+            const items = await fetchCategoryProducts(cat.id);
+            return items.map((item: any) => ({
+              ...item,
+              categoryId: cat.id,
+              categoryName: cat.name || cat.nameEn,
+              categoryNameAr: cat.nameAr,
+            }));
+          } catch (err) {
+            console.error(`Failed to fetch items for category ${cat.id}:`, err);
+            return [];
+          }
+        });
+
+        const itemsArrays = await Promise.all(itemsPromises);
+        allItems = itemsArrays.flat();
+      }
+
+      // Format items for response
+      const formattedItems = allItems.map((item: any) => ({
+        id: item.id,
+        name: item.nameEn || item.name,
+        nameAr: item.nameAr,
+        description: item.descriptionEn || item.description,
+        descriptionAr: item.descriptionAr,
+        price: typeof item.price === 'string' ? parseFloat(item.price) : item.price,
+        priceAfter: item.priceAfter ? (typeof item.priceAfter === 'string' ? parseFloat(item.priceAfter) : item.priceAfter) : null,
+        currency: item.currency || restaurant.currency || 'SAR',
+        imageUrl: item.imageUrl || item.avatar || (Array.isArray(item.images) && item.images[0]) || null,
+        available: item.isAvailableToDelivery !== false && item.isAvailableToReceipt !== false,
+        categoryId: item.categoryId,
+        categoryName: item.categoryName,
+        categoryNameAr: item.categoryNameAr,
+      }));
+
+      const availableCount = formattedItems.filter((item: any) => item.available).length;
+
+      return jsonResponse(
+        createLocalizedResponse(
+          {
+            merchantId: restaurant.externalMerchantId,
+            items: formattedItems,
+            summary: {
+              totalItems: formattedItems.length,
+              availableItems: availableCount,
+              unavailableItems: formattedItems.length - availableCount,
+            },
+            lastSync: new Date().toISOString(),
+          },
+          locale
+        )
+      );
+    } catch (error) {
+      return jsonResponse({ error: 'Failed to fetch items', details: error }, 500);
+    }
+  }
+
   // GET /api/catalog/branches
   if (url.pathname === '/api/catalog/branches' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);
@@ -142,9 +207,9 @@ export async function handleCatalogApi(req: Request, url: URL): Promise<Response
 
   // GET /api/catalog/sync-status
   if (url.pathname === '/api/catalog/sync-status' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);

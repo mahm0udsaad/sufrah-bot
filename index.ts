@@ -49,6 +49,10 @@ import { handleOnboardingApi } from './src/server/routes/dashboard/onboarding';
 import { handleAdminApi } from './src/server/routes/dashboard/admin';
 import { handleHealthApi } from './src/server/routes/dashboard/health';
 
+// NEW Dashboard API (matching dashboard developer specs exactly)
+import { handleDashboardApi } from './src/server/routes/dashboard/dashboardApi';
+import { handleDashboardApiExtended } from './src/server/routes/dashboard/dashboardApiExtended';
+
 // Removed business logic helpers; they now live in dedicated modules
 
 onMessageAppended((message) =>
@@ -117,7 +121,14 @@ const server = Bun.serve({
     const metaResponse = await handleMeta(req, url);
     if (metaResponse) return metaResponse;
 
-    // Dashboard API endpoints
+    // NEW Dashboard API (Priority - matches dashboard developer specs)
+    const newDashboardResponse = await handleDashboardApi(req, url);
+    if (newDashboardResponse) return newDashboardResponse;
+
+    const newDashboardExtendedResponse = await handleDashboardApiExtended(req, url);
+    if (newDashboardExtendedResponse) return newDashboardExtendedResponse;
+
+    // Legacy Dashboard API endpoints (kept for backward compatibility)
     const tenantsResponse = await handleTenantsApi(req, url);
     if (tenantsResponse) return tenantsResponse;
 

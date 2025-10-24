@@ -4,35 +4,21 @@
  */
 
 import { jsonResponse } from '../../http';
-import { DASHBOARD_PAT, BOT_API_KEY } from '../../../config';
 import { prisma } from '../../../db/client';
 import { getOrderFeed } from '../../../services/dashboardMetrics';
-import { getLocaleFromRequest, createLocalizedResponse, t, formatCurrency, formatRelativeTime } from '../../../services/i18n';
-
-type AuthResult = { ok: boolean; restaurantId?: string; isAdmin?: boolean; error?: string };
-
-function authenticate(req: Request): AuthResult {
-  const authHeader = req.headers.get('authorization') || '';
-  const apiKeyHeader = req.headers.get('x-api-key') || '';
-
-  let token = '';
-  const bearer = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (bearer && bearer[1]) token = bearer[1].trim();
-
-  if (DASHBOARD_PAT && token && token === DASHBOARD_PAT) {
-    const restaurantId = (req.headers.get('x-restaurant-id') || '').trim();
-    if (!restaurantId) {
-      return { ok: false, error: 'X-Restaurant-Id header is required' };
-    }
-    return { ok: true, restaurantId };
-  }
-
-  if (BOT_API_KEY && apiKeyHeader && apiKeyHeader === BOT_API_KEY) {
-    return { ok: true, isAdmin: true };
-  }
-
-  return { ok: false, error: 'Unauthorized' };
-}
+import {
+  getLocaleFromRequest,
+  createLocalizedResponse,
+  t,
+  formatCurrency,
+  formatRelativeTime,
+  getOrderStatusDisplay,
+  getOrderTypeDisplay,
+  getPaymentMethodDisplay,
+  getOrderAlertMessages,
+  getCustomerDisplayName,
+} from '../../../services/i18n';
+import { authenticateDashboard } from '../../../utils/dashboardAuth';
 
 /**
  * Handle GET /api/orders/live
@@ -41,9 +27,9 @@ function authenticate(req: Request): AuthResult {
 export async function handleOrdersApi(req: Request, url: URL): Promise<Response | null> {
   // GET /api/orders/live
   if (url.pathname === '/api/orders/live' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);
@@ -54,12 +40,24 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
     const orderFeed = await getOrderFeed(auth.restaurantId, limit, offset);
 
     // Add localized data
-    const localizedOrders = orderFeed.orders.map((order) => ({
-      ...order,
-      statusDisplay: t(`order.status.${order.status.toLowerCase()}`, locale),
-      totalFormatted: formatCurrency(order.totalCents, order.currency as any, locale),
-      createdAtRelative: formatRelativeTime(order.createdAt, locale),
-    }));
+    const localizedOrders = orderFeed.orders.map((order) => {
+      const alertMessages = getOrderAlertMessages(order.alerts, locale);
+
+      return {
+        ...order,
+        customerName: getCustomerDisplayName(order.customerName, locale),
+        statusDisplay: getOrderStatusDisplay(order.status, locale),
+        totalFormatted: formatCurrency(order.totalCents, order.currency || 'SAR', locale),
+        createdAtRelative: formatRelativeTime(order.createdAt, locale),
+        orderTypeDisplay: getOrderTypeDisplay(order.orderType, locale),
+        paymentMethodDisplay: getPaymentMethodDisplay(order.paymentMethod, locale),
+        alerts: {
+          ...order.alerts,
+          messages: alertMessages,
+        },
+        alertMessages,
+      };
+    });
 
     return jsonResponse(
       createLocalizedResponse(
@@ -76,9 +74,9 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
   const orderMatch = url.pathname.match(/^\/api\/orders\/([^/]+)$/);
   if (orderMatch && req.method === 'GET') {
     const orderId = orderMatch[1];
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);
@@ -100,29 +98,31 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
     });
 
     if (!order) {
-      return jsonResponse({ error: 'Order not found' }, 404);
+      return jsonResponse(createLocalizedResponse({ error: t('order.error.not_found', locale) }, locale), 404);
     }
 
     const response = {
       id: order.id,
       orderReference: order.orderReference,
       status: order.status,
-      statusDisplay: t(`order.status.${order.status.toLowerCase()}`, locale),
+      statusDisplay: getOrderStatusDisplay(order.status, locale),
       statusStage: order.statusStage,
       customer: {
-        name: order.conversation.customerName || 'Unknown',
+        name: getCustomerDisplayName(order.conversation.customerName, locale),
         phone: order.conversation.customerWa,
       },
       items: order.items.map((item) => ({
         ...item,
-        unitFormatted: formatCurrency(item.unitCents, order.currency as any, locale),
-        totalFormatted: formatCurrency(item.totalCents, order.currency as any, locale),
+        unitFormatted: formatCurrency(item.unitCents, order.currency || 'SAR', locale),
+        totalFormatted: formatCurrency(item.totalCents, order.currency || 'SAR', locale),
       })),
       totalCents: order.totalCents,
-      totalFormatted: formatCurrency(order.totalCents, order.currency as any, locale),
+      totalFormatted: formatCurrency(order.totalCents, order.currency || 'SAR', locale),
       currency: order.currency,
       orderType: order.orderType,
+      orderTypeDisplay: getOrderTypeDisplay(order.orderType, locale),
       paymentMethod: order.paymentMethod,
+      paymentMethodDisplay: getPaymentMethodDisplay(order.paymentMethod, locale),
       deliveryAddress: order.deliveryAddress,
       branchName: order.branchName,
       branchAddress: order.branchAddress,
@@ -140,9 +140,9 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
   // PATCH /api/orders/:id - update order status
   if (orderMatch && req.method === 'PATCH') {
     const orderId = orderMatch[1];
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const body = await req.json();
@@ -156,7 +156,7 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
     });
 
     if (!order) {
-      return jsonResponse({ error: 'Order not found' }, 404);
+      return jsonResponse(createLocalizedResponse({ error: t('order.error.not_found', locale) }, locale), 404);
     }
 
     const updateData: any = {};
@@ -180,7 +180,7 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
     }
 
     if (Object.keys(updateData).length === 0) {
-      return jsonResponse({ error: 'No valid fields to update' }, 400);
+      return jsonResponse(createLocalizedResponse({ error: t('order.error.no_changes', locale) }, locale), 400);
     }
 
     const updated = await prisma.order.update({
@@ -195,7 +195,7 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
           updated: true,
           changes: updateData,
           newStatus: updated.status,
-          newStatusDisplay: t(`order.status.${updated.status.toLowerCase()}`, locale),
+          newStatusDisplay: getOrderStatusDisplay(updated.status, locale),
         },
         locale
       )
@@ -204,9 +204,9 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
 
   // GET /api/orders/stats - order statistics
   if (url.pathname === '/api/orders/stats' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.restaurantId) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
 
     const locale = getLocaleFromRequest(req);
@@ -262,7 +262,7 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
       avgPrepTimeMinutes: Math.round(avgPrepTime[0]?.avg_prep_time || 0),
       ordersByStatus: ordersByStatus.map((item) => ({
         status: item.status,
-        statusDisplay: t(`order.status.${item.status.toLowerCase()}`, locale),
+        statusDisplay: getOrderStatusDisplay(item.status, locale),
         count: item._count,
       })),
     };
@@ -272,4 +272,3 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
 
   return null;
 }
-

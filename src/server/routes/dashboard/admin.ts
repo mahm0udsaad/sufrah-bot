@@ -9,6 +9,7 @@ import { prisma } from '../../../db/client';
 import { getLocaleFromRequest, createLocalizedResponse } from '../../../services/i18n';
 import { getCacheReport } from '../../../services/templateCacheMetrics';
 import { redis as redisClient } from '../../../redis/client';
+import { authenticateDashboard } from '../../../utils/dashboardAuth';
 
 type AuthResult = { ok: boolean; isAdmin?: boolean; error?: string };
 
@@ -29,7 +30,7 @@ function authenticate(req: Request): AuthResult {
 export async function handleAdminApi(req: Request, url: URL): Promise<Response | null> {
   // GET /api/admin/metrics
   if (url.pathname === '/api/admin/metrics' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.isAdmin) {
       return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }
@@ -169,7 +170,7 @@ export async function handleAdminApi(req: Request, url: URL): Promise<Response |
 
   // GET /api/admin/restaurants - list all restaurants with key metrics
   if (url.pathname === '/api/admin/restaurants' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     if (!auth.ok || !auth.isAdmin) {
       return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
     }

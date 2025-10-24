@@ -7,7 +7,18 @@ import { jsonResponse } from '../../http';
 import { DASHBOARD_PAT, BOT_API_KEY } from '../../../config';
 import { prisma } from '../../../db/client';
 import { getOrderFeed } from '../../../services/dashboardMetrics';
-import { getLocaleFromRequest, createLocalizedResponse, t, formatCurrency, formatRelativeTime } from '../../../services/i18n';
+import {
+  getLocaleFromRequest,
+  createLocalizedResponse,
+  t,
+  formatCurrency,
+  formatRelativeTime,
+  getOrderStatusDisplay,
+  getOrderTypeDisplay,
+  getPaymentMethodDisplay,
+  getOrderAlertMessages,
+  getCustomerDisplayName,
+} from '../../../services/i18n';
 
 type AuthResult = { ok: boolean; restaurantId?: string; isAdmin?: boolean; error?: string };
 
@@ -54,12 +65,24 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
     const orderFeed = await getOrderFeed(auth.restaurantId, limit, offset);
 
     // Add localized data
-    const localizedOrders = orderFeed.orders.map((order) => ({
-      ...order,
-      statusDisplay: t(`order.status.${order.status.toLowerCase()}`, locale),
-      totalFormatted: formatCurrency(order.totalCents, order.currency as any, locale),
-      createdAtRelative: formatRelativeTime(order.createdAt, locale),
-    }));
+    const localizedOrders = orderFeed.orders.map((order) => {
+      const alertMessages = getOrderAlertMessages(order.alerts, locale);
+
+      return {
+        ...order,
+        customerName: getCustomerDisplayName(order.customerName, locale),
+        statusDisplay: getOrderStatusDisplay(order.status, locale),
+        totalFormatted: formatCurrency(order.totalCents, (order.currency as any) || 'SAR', locale),
+        createdAtRelative: formatRelativeTime(order.createdAt, locale),
+        orderTypeDisplay: getOrderTypeDisplay(order.orderType, locale),
+        paymentMethodDisplay: getPaymentMethodDisplay(order.paymentMethod, locale),
+        alerts: {
+          ...order.alerts,
+          messages: alertMessages,
+        },
+        alertMessages,
+      };
+    });
 
     return jsonResponse(
       createLocalizedResponse(
@@ -100,29 +123,31 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
     });
 
     if (!order) {
-      return jsonResponse({ error: 'Order not found' }, 404);
+      return jsonResponse(createLocalizedResponse({ error: t('order.error.not_found', locale) }, locale), 404);
     }
 
     const response = {
       id: order.id,
       orderReference: order.orderReference,
       status: order.status,
-      statusDisplay: t(`order.status.${order.status.toLowerCase()}`, locale),
+      statusDisplay: getOrderStatusDisplay(order.status, locale),
       statusStage: order.statusStage,
       customer: {
-        name: order.conversation.customerName || 'Unknown',
+        name: getCustomerDisplayName(order.conversation.customerName, locale),
         phone: order.conversation.customerWa,
       },
       items: order.items.map((item) => ({
         ...item,
-        unitFormatted: formatCurrency(item.unitCents, order.currency as any, locale),
-        totalFormatted: formatCurrency(item.totalCents, order.currency as any, locale),
+        unitFormatted: formatCurrency(item.unitCents, (order.currency as any) || 'SAR', locale),
+        totalFormatted: formatCurrency(item.totalCents, (order.currency as any) || 'SAR', locale),
       })),
       totalCents: order.totalCents,
-      totalFormatted: formatCurrency(order.totalCents, order.currency as any, locale),
+      totalFormatted: formatCurrency(order.totalCents, (order.currency as any) || 'SAR', locale),
       currency: order.currency,
       orderType: order.orderType,
+      orderTypeDisplay: getOrderTypeDisplay(order.orderType, locale),
       paymentMethod: order.paymentMethod,
+      paymentMethodDisplay: getPaymentMethodDisplay(order.paymentMethod, locale),
       deliveryAddress: order.deliveryAddress,
       branchName: order.branchName,
       branchAddress: order.branchAddress,
@@ -156,7 +181,7 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
     });
 
     if (!order) {
-      return jsonResponse({ error: 'Order not found' }, 404);
+      return jsonResponse(createLocalizedResponse({ error: t('order.error.not_found', locale) }, locale), 404);
     }
 
     const updateData: any = {};
@@ -180,7 +205,7 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
     }
 
     if (Object.keys(updateData).length === 0) {
-      return jsonResponse({ error: 'No valid fields to update' }, 400);
+      return jsonResponse(createLocalizedResponse({ error: t('order.error.no_changes', locale) }, locale), 400);
     }
 
     const updated = await prisma.order.update({
@@ -195,7 +220,7 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
           updated: true,
           changes: updateData,
           newStatus: updated.status,
-          newStatusDisplay: t(`order.status.${updated.status.toLowerCase()}`, locale),
+          newStatusDisplay: getOrderStatusDisplay(updated.status, locale),
         },
         locale
       )
@@ -262,7 +287,7 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
       avgPrepTimeMinutes: Math.round(avgPrepTime[0]?.avg_prep_time || 0),
       ordersByStatus: ordersByStatus.map((item) => ({
         status: item.status,
-        statusDisplay: t(`order.status.${item.status.toLowerCase()}`, locale),
+        statusDisplay: getOrderStatusDisplay(item.status, locale),
         count: item._count,
       })),
     };
@@ -272,4 +297,3 @@ export async function handleOrdersApi(req: Request, url: URL): Promise<Response 
 
   return null;
 }
-

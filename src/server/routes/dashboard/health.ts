@@ -8,6 +8,7 @@ import { BOT_API_KEY } from '../../../config';
 import { prisma } from '../../../db/client';
 import { redis as redisClient } from '../../../redis/client';
 import { getLocaleFromRequest, createLocalizedResponse } from '../../../services/i18n';
+import { authenticateDashboard } from '../../../utils/dashboardAuth';
 
 type AuthResult = { ok: boolean; isPublic?: boolean; isAdmin?: boolean; error?: string };
 
@@ -106,7 +107,7 @@ async function getQueueMetrics() {
 export async function handleHealthApi(req: Request, url: URL): Promise<Response | null> {
   // GET /api/health - basic health check
   if (url.pathname === '/api/health' && req.method === 'GET') {
-    const auth = authenticate(req);
+    const auth = await authenticateDashboard(req);
     const locale = getLocaleFromRequest(req);
 
     const [dbHealth, redisHealth] = await Promise.all([
