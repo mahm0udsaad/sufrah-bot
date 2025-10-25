@@ -48,14 +48,8 @@ class RedisEventBus {
       console.error('❌ Redis event subscriber error:', err);
     });
 
-    // Ensure both duplicate connections are established early
-    this.publisher.connect().catch((err) => {
-      console.error('❌ Failed to connect Redis event publisher:', err);
-    });
-
-    this.subscriber.connect().catch((err) => {
-      console.error('❌ Failed to connect Redis event subscriber:', err);
-    });
+    // ioredis connects automatically on instantiation; avoid redundant connect calls
+    // to prevent "Redis is already connecting" rejection noise
   }
 
   /**

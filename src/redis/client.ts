@@ -1,14 +1,9 @@
 import Redis from 'ioredis';
-import { REDIS_URL, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD } from '../config';
+import { REDIS_URL } from '../config';
 
-// Create Redis client for general use
-const useTLS = REDIS_URL.startsWith('rediss://');
-
-export const redis = new Redis({
-  host: REDIS_HOST,
-  port: Number(REDIS_PORT),
-  password: REDIS_PASSWORD || undefined,
-  ...(useTLS ? { tls: {} } : {}),
+// Create Redis client using the properly constructed REDIS_URL
+// This ensures we use REDIS_URL when set, falling back to individual components
+export const redis = new Redis(REDIS_URL, {
   db: 0,
   maxRetriesPerRequest: 3,
   retryStrategy(times) {
