@@ -97,6 +97,128 @@ export async function processInboundWebhook(
       return { success: false, error: 'Twilio client unavailable', statusCode: 500 };
     }
 
+    // PRIORITY: Handle "View Order Details" button click IMMEDIATELY
+    // This bypasses all normal flow (idempotency, rate limiting, bot automation)
+    if (isViewOrderRequest) {
+      console.log(`🔘 [ButtonClick] User clicked "View Order Details" from ${From} - handling immediately`);
+      
+      const customerPhone = normalizePhoneNumber(From);
+      
+      // Find or create minimal conversation for tracking
+      let conversation;
+      try {
+        conversation = await findOrCreateConversation(
+          restaurantProfileId,
+          customerPhone,
+          ProfileName
+        );
+      } catch (err) {
+        console.warn('⚠️ [ButtonClick] Could not create conversation, continuing anyway:', err);
+      }
+
+      // Persist button click as inbound message (for 24h window tracking)
+      if (conversation) {
+        try {
+          await createInboundMessage({
+            conversationId: conversation.id,
+            restaurantId: restaurantProfileId,
+            waSid: MessageSid || `button_${Date.now()}`,
+            fromPhone: customerPhone,
+            toPhone: normalizePhoneNumber(To),
+            messageType: 'button',
+            content: ButtonText || Body || 'View Order Details',
+            metadata: { buttonPayload: ButtonPayload, buttonText: ButtonText, isButtonResponse: true },
+          });
+          await updateConversation(conversation.id, {
+            lastMessageAt: new Date(),
+          });
+        } catch (persistErr) {
+          console.warn('⚠️ [ButtonClick] Failed to persist button message:', persistErr);
+        }
+      }
+
+      // Retrieve and send cached message
+      const cachedMessage = await consumeCachedMessageForPhone(From);
+
+      if (cachedMessage) {
+        console.log(`📤 [ButtonClick] Sending cached order details to ${From}`);
+        try {
+          // Button click opens 24h window - force freeform sending
+          await sendNotification(twilioClient, From, cachedMessage, { 
+            fromNumber: To, 
+            forceFreeform: true 
+          });
+          console.log(`✅ [ButtonClick] Successfully sent cached message to ${From}`);
+          
+          await logWebhookRequest({
+            restaurantId: restaurantProfileId,
+            requestId,
+            method: 'POST',
+            path: '/whatsapp/webhook',
+            body: payload,
+            statusCode: 200,
+          });
+          
+          return { 
+            success: true, 
+            restaurantId: restaurantProfileId, 
+            conversationId: conversation?.id,
+            statusCode: 200 
+          };
+        } catch (error: any) {
+          console.error(`❌ [ButtonClick] Failed to send cached message:`, error);
+          
+          await logWebhookRequest({
+            restaurantId: restaurantProfileId,
+            requestId,
+            method: 'POST',
+            path: '/whatsapp/webhook',
+            body: payload,
+            statusCode: 500,
+            errorMessage: `Failed to send cached message: ${error.message}`,
+          });
+          
+          return { 
+            success: false, 
+            restaurantId: restaurantProfileId, 
+            error: 'Failed to send cached message', 
+            statusCode: 500 
+          };
+        }
+      } else {
+        console.warn(`⚠️ [ButtonClick] No cached message found for ${From}`);
+        
+        // Send fallback message
+        try {
+          await sendNotification(
+            twilioClient, 
+            From, 
+            'Sorry, order details are no longer available. Please contact support.', 
+            { fromNumber: To, forceFreeform: true }
+          );
+          console.log(`📤 [ButtonClick] Sent fallback message to ${From}`);
+        } catch (error) {
+          console.error(`❌ [ButtonClick] Failed to send fallback:`, error);
+        }
+        
+        await logWebhookRequest({
+          restaurantId: restaurantProfileId,
+          requestId,
+          method: 'POST',
+          path: '/whatsapp/webhook',
+          body: payload,
+          statusCode: 404,
+          errorMessage: 'No cached message found',
+        });
+        
+        return { 
+          success: false, 
+          restaurantId: restaurantProfileId, 
+          error: 'No cached message found', 
+          statusCode: 404 
+        };
+      }
+    }
 
     const twilioAuthToken =
       (restaurant as any).twilioAuthToken ??
@@ -193,83 +315,12 @@ export async function processInboundWebhook(
     let mediaUrl: string | undefined;
     const metadata: any = {};
 
-    // If this is a button response (including "view_order"), handle it now after conversation is established
+    // Note: view_order button is handled at the top of this function (lines 102-220)
+    // and returns immediately, so it will never reach this point
+
+    // Handle other button responses (not view_order)
     const isButtonResponse = Boolean(ButtonPayload || ButtonText);
-    if (isViewOrderRequest) {
-      console.log(`🔘 [ButtonClick] User requested "View Order Details" from ${From}`);
-
-      // Persist an inbound message for session window tracking (but mark as a button response)
-      try {
-        await createInboundMessage({
-          conversationId: conversation.id,
-          restaurantId: restaurantProfileId,
-          waSid: MessageSid,
-          fromPhone: customerPhone,
-          toPhone: normalizePhoneNumber(To),
-          messageType: 'button',
-          content: ButtonText || Body || 'View Order Details',
-          metadata: { buttonPayload: ButtonPayload, buttonText: ButtonText, isButtonResponse: true },
-        });
-        await updateConversation(conversation.id, {
-          lastMessageAt: new Date(),
-        });
-      } catch (persistErr) {
-        console.warn('⚠️ [ButtonClick] Failed to persist inbound button message (continuing):', persistErr);
-      }
-
-      // Retrieve cached message (and mark delivered)
-      const cachedMessage = await consumeCachedMessageForPhone(From);
-
-      if (cachedMessage) {
-        console.log(`📤 [ButtonClick] Sending cached order details to ${From} (freeform - button opened 24h window)`);
-        try {
-          // Button click opens 24h window - force freeform sending
-          await sendNotification(twilioClient, From, cachedMessage, { fromNumber: To, forceFreeform: true });
-          console.log(`✅ [ButtonClick] Successfully sent cached message to ${From}`);
-          await logWebhookRequest({
-            restaurantId: restaurantProfileId,
-            requestId,
-            method: 'POST',
-            path: '/whatsapp/webhook',
-            body: payload,
-            statusCode: 200,
-          });
-          return { success: true, restaurantId: restaurant.id, statusCode: 200 };
-        } catch (error: any) {
-          console.error(`❌ [ButtonClick] Failed to send cached message to ${From}:`, error);
-          await logWebhookRequest({
-            restaurantId: restaurantProfileId,
-            requestId,
-            method: 'POST',
-            path: '/whatsapp/webhook',
-            body: payload,
-            statusCode: 500,
-            errorMessage: `Failed to send cached message: ${error.message}`,
-          });
-          return { success: false, restaurantId: restaurant.id, error: 'Failed to send cached message', statusCode: 500 };
-        }
-      } else {
-        console.warn(`⚠️ [ButtonClick] No cached message found for ${From}`);
-        try {
-          // Send fallback as freeform (button click opened 24h window)
-          await sendNotification(twilioClient, From, 'Sorry, order details are no longer available. Please contact support.', { fromNumber: To, forceFreeform: true });
-        } catch (error) {
-          console.error(`❌ [ButtonClick] Failed to send fallback message:`, error);
-        }
-        await logWebhookRequest({
-          restaurantId: restaurantProfileId,
-          requestId,
-          method: 'POST',
-          path: '/whatsapp/webhook',
-          body: payload,
-          statusCode: 404,
-          errorMessage: 'No cached message found',
-        });
-        return { success: false, restaurantId: restaurant.id, error: 'No cached message found', statusCode: 404 };
-      }
-    }
-
-    if (isButtonResponse && !isViewOrderRequest) {
+    if (isButtonResponse) {
       messageType = 'interactive';
       content = ButtonPayload || Body || ButtonText || content;
       metadata.buttonPayload = ButtonPayload;
