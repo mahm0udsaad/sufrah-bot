@@ -19,6 +19,8 @@ export async function handleTwilioForm(req: Request, url: URL): Promise<Response
     return null;
   }
 
+  console.log(`🔔 [Webhook] Received ${req.method} ${url.pathname} from ${req.headers.get('user-agent') || 'unknown'}`);
+
   try {
     const contentType = req.headers.get('content-type') || '';
     if (!contentType.includes('application/x-www-form-urlencoded')) {
@@ -32,6 +34,11 @@ export async function handleTwilioForm(req: Request, url: URL): Promise<Response
     const raw = await req.text();
     const params = new URLSearchParams(raw);
     const payload = Object.fromEntries(params.entries());
+    
+    console.log(`📨 [Webhook] Payload keys: ${Object.keys(payload).join(', ')}`);
+    if (payload.ButtonPayload || payload.ButtonText) {
+      console.log(`🔘 [Webhook] Button detected - ButtonPayload: ${payload.ButtonPayload}, ButtonText: ${payload.ButtonText}`);
+    }
 
     const host = req.headers.get('host') ?? '';
     const proto = req.headers.get('x-forwarded-proto') || 'http';
