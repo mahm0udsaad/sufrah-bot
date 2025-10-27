@@ -38,3 +38,5 @@ process.on('beforeExit', async () => {
 });
 
 export default redis;
+// Backward-compatible named export expected by some routes
+export const redisClient = redis;
