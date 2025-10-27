@@ -7,12 +7,42 @@ import { checkQuota } from '../../../services/quotaEnforcement';
 type AuthResult = { ok: boolean; restaurantId?: string; isAdmin?: boolean; error?: string };
 
 /**
+ * Resolve restaurant ID from user ID or restaurant ID
+ * This handles the common case where dashboard sends user ID instead of restaurant ID
+ */
+async function resolveRestaurantId(identifier: string): Promise<string | null> {
+  // First try as restaurant ID (most common case)
+  const restaurant = await prisma.restaurant.findUnique({
+    where: { id: identifier },
+    select: { id: true },
+  });
+  
+  if (restaurant) {
+    return restaurant.id;
+  }
+
+  // Fallback: try as user ID
+  const user = await prisma.user.findUnique({
+    where: { id: identifier },
+    select: { RestaurantProfile: { select: { id: true } } },
+  });
+
+  if (user?.RestaurantProfile?.id) {
+    return user.RestaurantProfile.id;
+  }
+
+  return null;
+}
+
+/**
  * Authenticate request for usage API
  * Supports:
  * - PAT with X-Restaurant-Id header (dashboard access)
  * - API Key for admin access (list all restaurants)
+ * 
+ * Note: X-Restaurant-Id can be either restaurant ID or user ID (auto-resolved)
  */
-function authenticate(req: any): AuthResult {
+async function authenticate(req: any): Promise<AuthResult> {
   const authHeader = req.headers.get('authorization') || '';
   const apiKeyHeader = req.headers.get('x-api-key') || '';
 
@@ -22,10 +52,17 @@ function authenticate(req: any): AuthResult {
 
   // PAT authentication (specific restaurant)
   if (DASHBOARD_PAT && token && token === DASHBOARD_PAT) {
-    const restaurantId = (req.headers.get('x-restaurant-id') || '').trim();
-    if (!restaurantId) {
+    const identifier = (req.headers.get('x-restaurant-id') || '').trim();
+    if (!identifier) {
       return { ok: false, error: 'X-Restaurant-Id header is required for PAT' };
     }
+
+    // Smart resolution: accept both restaurant ID and user ID
+    const restaurantId = await resolveRestaurantId(identifier);
+    if (!restaurantId) {
+      return { ok: false, error: 'Restaurant not found for provided ID' };
+    }
+
     return { ok: true, restaurantId };
   }
 
@@ -230,7 +267,7 @@ export async function handleUsageApi(req: any, url: any): Promise<any | null> {
 
   // GET /api/usage/details (PAT only) - detailed view for one restaurant
   if (url.pathname === '/api/usage/details') {
-    const auth = authenticate(req);
+    const auth = await authenticate(req);
     if (!auth.ok || !auth.restaurantId) {
       const status = auth.error?.includes('required') ? 400 : 401;
       return jsonResponse({ error: auth.error || 'Unauthorized' }, status);
@@ -250,7 +287,7 @@ export async function handleUsageApi(req: any, url: any): Promise<any | null> {
   // GET /api/usage/:restaurantId/details (admin only) - detailed view for one restaurant
   const detailsMatch = url.pathname.match(/^\/api\/usage\/([^/]+)\/details$/);
   if (detailsMatch) {
-    const auth = authenticate(req);
+    const auth = await authenticate(req);
     if (!auth.ok || !auth.isAdmin) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }
@@ -263,7 +300,7 @@ export async function handleUsageApi(req: any, url: any): Promise<any | null> {
 
   // GET /api/usage/alerts?threshold=0.9 - restaurants nearing quota (admin only)
   if (url.pathname === '/api/usage/alerts') {
-    const auth = authenticate(req);
+    const auth = await authenticate(req);
     if (!auth.ok || !auth.isAdmin) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }
@@ -317,7 +354,7 @@ export async function handleUsageApi(req: any, url: any): Promise<any | null> {
 
   // GET /api/usage - list all restaurants (admin only)
   if (url.pathname === '/api/usage') {
-    const auth = authenticate(req);
+    const auth = await authenticate(req);
     if (!auth.ok) {
       const status = auth.error?.includes('required') ? 400 : 401;
       return jsonResponse({ error: auth.error || 'Unauthorized' }, status);
@@ -434,7 +471,7 @@ export async function handleUsageApi(req: any, url: any): Promise<any | null> {
   // GET /api/usage/:restaurantId - specific restaurant (admin only)
   const restaurantMatch = url.pathname.match(/^\/api\/usage\/([^/]+)$/);
   if (restaurantMatch) {
-    const auth = authenticate(req);
+    const auth = await authenticate(req);
     if (!auth.ok || !auth.isAdmin) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }
@@ -508,3 +545,4 @@ export async function handleUsageApi(req: any, url: any): Promise<any | null> {
 
   return null;
 }
+
