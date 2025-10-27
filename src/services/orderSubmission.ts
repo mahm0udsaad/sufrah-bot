@@ -60,9 +60,9 @@ interface PayloadItem {
 function buildSufrahUrl(path: string): string {
   const base = (SUFRAH_API_BASE || '').replace(/\/$/, '');
   const cleanedPath = path.replace(/^\//, '');
+  console.log(`🚀 [OrderSubmission] SUFRAH_API_BASE: ${base}/${cleanedPath}`);
   return `${base}/${cleanedPath}`;
 }
-
 const BRANCH_CACHE_TTL_SECONDS = 600;
 
 function isRedisReady(): boolean {
@@ -366,7 +366,7 @@ export async function submitExternalOrder(
     `🚀 [OrderSubmission] Submitting order for ${normalizedConversationId} to Sufrah with payload:`,
     JSON.stringify(commandPayload)
   );
-
+  console.log(`🚀 [OrderSubmission] SUFRAH_API_KEY: ${SUFRAH_API_KEY}`);
   const response = await fetch(buildSufrahUrl('/orders/submit'), {
     method: 'POST',
     headers: {

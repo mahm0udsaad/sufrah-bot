@@ -2,6 +2,7 @@ import { createContent } from '../twilio/content';
 import { MAX_ITEM_QUANTITY, type BranchOption, type MenuItem, type MenuCategory } from './menuData';
 
 const MAX_LIST_PICKER_ITEMS = 10;
+const MAX_ITEM_TITLE_LENGTH = 24; // Twilio's limit for list picker item titles
 const MAX_DESCRIPTION_LENGTH = 72; // Twilio's limit for list picker item descriptions
 
 interface FriendlyNameOptions {
@@ -22,11 +23,25 @@ function chunkArray<T>(array: T[], chunkSize: number): T[][] {
 /**
  * Truncates a string to a maximum length, adding ellipsis if needed
  */
-function truncateDescription(text: string, maxLength: number = MAX_DESCRIPTION_LENGTH): string {
+function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) {
     return text;
   }
   return text.slice(0, maxLength - 3) + '...';
+}
+
+/**
+ * Truncates item title to 24 characters (Twilio limit)
+ */
+function truncateItemTitle(text: string): string {
+  return truncateText(text, MAX_ITEM_TITLE_LENGTH);
+}
+
+/**
+ * Truncates description to 72 characters (Twilio limit)
+ */
+function truncateDescription(text: string): string {
+  return truncateText(text, MAX_DESCRIPTION_LENGTH);
 }
 
 export async function createOrderTypeQuickReply(auth: string): Promise<string> {
@@ -59,7 +74,7 @@ export async function createFoodListPicker(
   const friendlyName = options.friendlyName ?? `food_list_${Date.now()}_p${page}`;
   const items = categories.map((category) => ({
     id: `cat_${category.id}`,
-    item: category.item,
+    item: truncateItemTitle(category.item),
     description: truncateDescription(category.description || ''),
   }));
 
@@ -95,7 +110,7 @@ export async function createBranchListPicker(
   const friendlyName = options.friendlyName ?? `branch_list_${Date.now()}_p${page}`;
   const pickerItems = branches.map((branch) => ({
     id: `branch_${branch.id}`,
-    item: branch.item,
+    item: truncateItemTitle(branch.item),
     description: truncateDescription(branch.description || ''),
   }));
 
@@ -141,7 +156,7 @@ export async function createItemsListPicker(
     
     return {
       id: `item_${item.id}`,
-      item: item.item,
+      item: truncateItemTitle(item.item),
       description: truncateDescription(fullDescription),
     };
   });
@@ -266,7 +281,7 @@ export async function createRemoveItemListQuickReply(
 ): Promise<string> {
   const listItems = items.map((entry) => ({
     id: `remove_item_${entry.id}`,
-    item: entry.name,
+    item: truncateItemTitle(entry.name),
     description: truncateDescription(`${entry.quantity} × ${entry.price} ${entry.currency || 'ر.س'}`),
   }));
 

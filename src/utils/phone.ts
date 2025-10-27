@@ -1,8 +1,15 @@
 export function ensureWhatsAppAddress(phone: string): string {
-  const trimmed = phone.trim();
-  if (trimmed.startsWith('whatsapp:')) return trimmed;
-  if (trimmed.startsWith('+')) return `whatsapp:${trimmed}`;
-  return `whatsapp:+${trimmed}`;
+  // Remove all whitespace and non-digit characters except + and :
+  const cleaned = phone.replace(/\s/g, '').trim();
+  
+  if (cleaned.startsWith('whatsapp:')) {
+    // Already has whatsapp: prefix, ensure no spaces in the number part
+    const [prefix, number] = cleaned.split(':');
+    return `${prefix}:${number.replace(/\s/g, '')}`;
+  }
+  
+  if (cleaned.startsWith('+')) return `whatsapp:${cleaned}`;
+  return `whatsapp:+${cleaned}`;
 }
 
 export function normalizePhoneNumber(raw: string): string {

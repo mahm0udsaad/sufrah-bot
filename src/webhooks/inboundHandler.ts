@@ -54,11 +54,24 @@ export async function processInboundWebhook(
   const { From, To, Body, MessageSid, ProfileName, Latitude, Longitude, Address, ButtonPayload, ButtonText } = payload;
 
   try {
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`🔔 [Webhook] Processing inbound message`);
+    console.log(`   From: ${From}`);
+    console.log(`   To: ${To}`);
+    console.log(`   Body: ${Body || '(empty)'}`);
+    console.log(`   MessageSid: ${MessageSid || '(none)'}`);
+    console.log(`   ButtonPayload: ${ButtonPayload || '(none)'}`);
+    console.log(`   ButtonText: ${ButtonText || '(none)'}`);
+    console.log(`   ProfileName: ${ProfileName || '(none)'}`);
+    
     // Step 0: Detect quick reply button clicks (view_order button) - handling deferred until after conversation is established
     const isViewOrderRequest = 
       ButtonPayload === 'view_order' || 
       Body === 'View Order Details' ||
       ButtonText === 'View Order Details';
+    
+    console.log(`   isViewOrderRequest: ${isViewOrderRequest}`);
+    console.log(`${'='.repeat(80)}\n`);
     
     // Step 1: Route by "To" number → RestaurantBot
     const restaurant = await findRestaurantByWhatsAppNumber(To);
@@ -100,6 +113,7 @@ export async function processInboundWebhook(
     // PRIORITY: Handle "View Order Details" button click IMMEDIATELY
     // This bypasses all normal flow (idempotency, rate limiting, bot automation)
     if (isViewOrderRequest) {
+      console.log(`\n🔘 [ButtonClick] ENTERING VIEW ORDER REQUEST HANDLER`);
       console.log(`🔘 [ButtonClick] User clicked "View Order Details" from ${From} - handling immediately`);
       
       const customerPhone = normalizePhoneNumber(From);
@@ -220,12 +234,19 @@ export async function processInboundWebhook(
       }
     }
 
+    console.log(`✅ [Flow] Button click handler skipped, continuing with normal message flow`);
+    console.log(`✅ [Flow] Processing as regular message (not a view_order button)`);
+
     const twilioAuthToken =
       (restaurant as any).twilioAuthToken ??
       restaurant.authToken ??
       (restaurant as any).restaurant?.twilioAuthToken ??
       '';
 
+    console.log(`🔐 [Step 2] Starting Twilio signature validation...`);
+    console.log(`   Has signature: ${!!signature}`);
+    console.log(`   Has auth token: ${!!twilioAuthToken}`);
+    
     // Step 2: Validate Twilio signature
     if (signature && twilioAuthToken) {
       const isValid = validateTwilioSignature(
@@ -252,10 +273,17 @@ export async function processInboundWebhook(
         `⚠️ Twilio auth token unavailable for restaurant ${restaurantProfileId}; skipping signature validation`
       );
     }
+    
+    console.log(`✅ [Step 2] Signature validation passed/skipped`);
 
+    console.log(`🔍 [Step 3] Starting idempotency check...`);
+    console.log(`   MessageSid: ${MessageSid || 'none'}`);
+    
     // Step 3: Idempotency check - prevent duplicate processing
     if (MessageSid) {
+      console.log(`   [Idempotency] Checking DB for existing waSid: ${MessageSid}`);
       const alreadyProcessed = await messageExists(MessageSid);
+      console.log(`   [Idempotency] messageExists=${alreadyProcessed}`);
       if (alreadyProcessed) {
         console.log(`⏭️ Duplicate webhook detected (MessageSid: ${MessageSid}), skipping`);
         return {
@@ -266,15 +294,29 @@ export async function processInboundWebhook(
       }
 
       // Try to acquire idempotency lock
+      console.log(`   [Idempotency] Trying to acquire lock for key msg:${MessageSid}`);
       const acquired = await tryAcquireIdempotencyLock(`msg:${MessageSid}`);
+      console.log(`   [Idempotency] lock acquired=${acquired}`);
       if (!acquired) {
-        console.log(`⏭️ Message ${MessageSid} is being processed by another worker`);
-        return { success: true, restaurantId: restaurantProfileId, statusCode: 200 };
+        const failOpen = (process.env.IDEMPOTENCY_FAIL_OPEN ?? 'true') !== 'false';
+        console.warn(
+          `⚠️ [Idempotency] Could not acquire lock for ${MessageSid}. failOpen=${failOpen}`
+        );
+        if (!failOpen) {
+          console.log(`⏭️ Message ${MessageSid} treated as in-progress by another worker (strict mode)`);
+          return { success: true, restaurantId: restaurantProfileId, statusCode: 200 };
+        }
+        console.warn(`⚠️ [Idempotency] Proceeding without lock (fail-open) to avoid stuck flow`);
       }
     }
+    
+    console.log(`✅ [Step 3] Idempotency check passed`);
 
+    console.log(`🚦 [Step 4] Starting rate limit checks...`);
+    
     // Step 4: Rate limiting - per restaurant and per customer
     const customerPhone = normalizePhoneNumber(From);
+    console.log(`   Customer phone (normalized): ${customerPhone}`);
 
     const restaurantLimit = await checkRestaurantRateLimit(
       restaurantProfileId,
@@ -299,7 +341,11 @@ export async function processInboundWebhook(
       console.warn(`⚠️ Customer ${customerPhone} rate limit exceeded for restaurant ${restaurantProfileId}`);
       return { success: false, error: 'Customer rate limit exceeded', statusCode: 429 };
     }
+    
+    console.log(`✅ [Step 4] Rate limit checks passed`);
 
+    console.log(`💬 [Step 5] Finding or creating conversation...`);
+    
     // Step 5: Find or create conversation
     const conversation = await findOrCreateConversation(
       restaurantProfileId,
@@ -307,8 +353,10 @@ export async function processInboundWebhook(
       ProfileName
     );
 
-    console.log(`💬 Conversation: ${conversation.id}`);
+    console.log(`✅ [Step 5] Conversation: ${conversation.id}`);
 
+    console.log(`📝 [Step 6] Determining message type and content...`);
+    
     // Step 6: Determine message type and content
     let messageType = 'text';
     let content = Body || '';
@@ -346,6 +394,10 @@ export async function processInboundWebhook(
       metadata.profileName = ProfileName;
     }
 
+    console.log(`💾 [Step 7] Persisting message to database...`);
+    console.log(`   Message type: ${messageType}`);
+    console.log(`   Content: ${content.substring(0, 50)}${content.length > 50 ? '...' : ''}`);
+    
     // Step 7: Persist message to database
     const message = await createInboundMessage({
       conversationId: conversation.id,
@@ -361,17 +413,25 @@ export async function processInboundWebhook(
 
     if (!message) {
       // Message was a duplicate (caught by DB-level idempotency)
+      console.log(`⏭️ [Step 7] Duplicate message detected at DB level, skipping`);
       return { success: true, restaurantId: restaurant.id, statusCode: 200 };
     }
 
-    console.log(`✅ Message persisted: ${message.id}`);
+    console.log(`✅ [Step 7] Message persisted: ${message.id}`);
 
+    console.log(`🔄 [Step 8] Updating conversation...`);
+    
     // Step 8: Update conversation lastMessageAt and unreadCount
     await updateConversation(conversation.id, {
       lastMessageAt: new Date(),
       unreadCount: conversation.unreadCount + 1,
     });
+    
+    console.log(`✅ [Step 8] Conversation updated`);
 
+    console.log(`📡 [Step 9] Publishing event to dashboard...`);
+    console.log(`   Is button response: ${isButtonResponse}`);
+    
     // Step 9: Publish real-time event to dashboard (skip if button response)
     if (!isButtonResponse) {
       await eventBus.publishMessage(restaurantProfileId, {
@@ -392,11 +452,19 @@ export async function processInboundWebhook(
           unreadCount: conversation.unreadCount + 1,
         },
       });
+      console.log(`✅ [Step 9] Event published to dashboard`);
     } else {
       console.log(`🔘 [ButtonResponse] Skipping event bus publish for button response`);
     }
 
+    console.log(`✅ [Step 9] Event bus step completed`);
+    
     // Step 10: Trigger bot automation (fire-and-wait)
+    console.log(`\n🤖 [Bot Automation] Preparing to call processMessage()`);
+    console.log(`   Customer: ${customerPhone}`);
+    console.log(`   Content: ${content}`);
+    console.log(`   Type: ${messageType}`);
+    
     const automationPayload: Record<string, any> = {
       profileName: ProfileName,
       recipientPhone: To,
@@ -411,10 +479,16 @@ export async function processInboundWebhook(
       automationPayload.buttonPayload = ButtonPayload;
       automationPayload.buttonText = ButtonText;
     }
+    
+    console.log(`   Payload keys: ${Object.keys(automationPayload).join(', ')}`);
+    console.log(`🤖 [Bot Automation] Calling processMessage() now...`);
+    
     try {
       await processMessage(customerPhone, content, messageType, automationPayload);
+      console.log(`✅ [Bot Automation] processMessage() completed successfully`);
     } catch (automationError) {
-      console.error('❌ Failed to run bot automation:', automationError);
+      console.error('❌ [Bot Automation] Failed to run bot automation:', automationError);
+      console.error('❌ [Bot Automation] Error stack:', (automationError as Error).stack);
     }
 
     // Step 11: Log webhook for audit
@@ -426,6 +500,12 @@ export async function processInboundWebhook(
       body: payload,
       statusCode: 200,
     });
+
+    console.log(`\n✅ [Webhook] Successfully processed message ${MessageSid}`);
+    console.log(`   Restaurant: ${restaurantProfileId}`);
+    console.log(`   Conversation: ${conversation.id}`);
+    console.log(`   Message: ${message.id}`);
+    console.log(`${'='.repeat(80)}\n`);
 
     return {
       success: true,

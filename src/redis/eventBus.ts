@@ -52,12 +52,29 @@ class RedisEventBus {
     // to prevent "Redis is already connecting" rejection noise
   }
 
+  private timeoutMs(): number {
+    return Number(process.env.EVENTBUS_TIMEOUT_MS || 300);
+  }
+
+  private async publishWithTimeout(channel: string, payload: any): Promise<void> {
+    const body = JSON.stringify(payload);
+    const timeout = this.timeoutMs();
+    try {
+      await Promise.race([
+        this.publisher.publish(channel, body),
+        new Promise<void>((resolve) => setTimeout(resolve, timeout)),
+      ] as const);
+    } catch (err) {
+      console.warn(`⚠️ EventBus publish failed for ${channel}:`, err);
+    }
+  }
+
   /**
    * Publish a message event to a restaurant channel
    */
   async publishMessage(restaurantId: string, message: any): Promise<void> {
     const channel = `ws:restaurant:${restaurantId}:messages`;
-    await this.publisher.publish(channel, JSON.stringify(message));
+    await this.publishWithTimeout(channel, message);
   }
 
   /**
@@ -65,7 +82,7 @@ class RedisEventBus {
    */
   async publishOrder(restaurantId: string, order: any): Promise<void> {
     const channel = `ws:restaurant:${restaurantId}:orders`;
-    await this.publisher.publish(channel, JSON.stringify(order));
+    await this.publishWithTimeout(channel, order);
   }
 
   /**
@@ -73,7 +90,7 @@ class RedisEventBus {
    */
   async publishConversation(restaurantId: string, conversation: any): Promise<void> {
     const channel = `ws:restaurant:${restaurantId}:conversations`;
-    await this.publisher.publish(channel, JSON.stringify(conversation));
+    await this.publishWithTimeout(channel, conversation);
   }
 
   /**

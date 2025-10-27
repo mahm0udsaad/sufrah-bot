@@ -21,9 +21,22 @@ export async function checkRateLimit(
 ): Promise<RateLimitResult> {
   const now = Date.now();
   const windowKey = `ratelimit:${key}:${Math.floor(now / windowMs)}`;
+  const timeoutMs = Number(process.env.RATE_LIMIT_TIMEOUT_MS || 600);
 
   try {
-    const count = await redis.incr(windowKey);
+    // Race Redis INCR with a timeout to avoid blocking inbound flow
+    const countOrNull: number | null = await Promise.race([
+      redis.incr(windowKey),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ] as const);
+
+    // Fail open on timeout
+    if (countOrNull === null) {
+      console.warn(`⚠️ Rate limit check timeout after ${timeoutMs}ms for ${windowKey}. Allowing request.`);
+      return { allowed: true, remaining: maxRequests, resetAt: now + windowMs };
+    }
+
+    const count = countOrNull;
 
     // Set expiry on first request in window
     if (count === 1) {

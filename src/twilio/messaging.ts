@@ -14,6 +14,10 @@ export async function sendTextMessage(
   const normalizedSender = normalizePhoneNumber(from);
 
   try {
+    console.log('📤 [Twilio] sendTextMessage');
+    console.log('   from:', fromAddress);
+    console.log('   to  :', toAddress);
+    console.log('   body:', text?.slice(0, 80));
     const message = await client.messages.create({
       from: fromAddress,
       to: toAddress,
@@ -30,6 +34,15 @@ export async function sendTextMessage(
     return message;
   } catch (error) {
     console.error('❌ Error sending text message:', error);
+    try {
+      // Some Twilio errors carry additional fields
+      const anyErr: any = error as any;
+      if (anyErr?.code || anyErr?.moreInfo || anyErr?.status) {
+        console.error('   code   :', anyErr.code);
+        console.error('   status :', anyErr.status);
+        console.error('   moreInfo:', anyErr.moreInfo);
+      }
+    } catch {}
     throw error;
   }
 }
@@ -50,6 +63,10 @@ export async function sendContentMessage(
   const normalizedSender = normalizePhoneNumber(from);
 
   try {
+    console.log('📤 [Twilio] sendContentMessage');
+    console.log('   from:', fromAddress);
+    console.log('   to  :', toAddress);
+    console.log('   contentSid:', contentSid);
     const message = await client.messages.create({
       from: fromAddress,
       to: toAddress,
@@ -74,6 +91,14 @@ export async function sendContentMessage(
       `❌ Error sending content message${options.logLabel ? ` (${options.logLabel})` : ''}:`,
       error
     );
+    try {
+      const anyErr: any = error as any;
+      if (anyErr?.code || anyErr?.moreInfo || anyErr?.status) {
+        console.error('   code   :', anyErr.code);
+        console.error('   status :', anyErr.status);
+        console.error('   moreInfo:', anyErr.moreInfo);
+      }
+    } catch {}
     throw error;
   }
 }
@@ -90,6 +115,10 @@ export async function sendInteractiveMessage(
   const normalizedSender = normalizePhoneNumber(from);
 
   try {
+    console.log('📤 [Twilio] sendInteractiveMessage');
+    console.log('   from:', fromAddress);
+    console.log('   to  :', toAddress);
+    console.log('   payload keys:', Object.keys(interactive || {}));
     const messagePayload: any = {
       from: fromAddress,
       to: toAddress,
