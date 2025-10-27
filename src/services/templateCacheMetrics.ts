@@ -326,6 +326,11 @@ export async function getCacheReport() {
   };
 }
 
+// Backward-compatible export used by some routes
+export async function getTemplateCacheMetrics() {
+  return getCacheReport();
+}
+
 /**
  * Reset runtime metrics (useful for testing)
  */
