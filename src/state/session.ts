@@ -1,7 +1,8 @@
 import redis from '../redis/client';
 import { normalizePhoneNumber } from '../utils/phone';
 
-const SESSION_TTL_SECONDS = 300;
+// Keep conversation session longer to allow post-order actions like ratings
+const SESSION_TTL_SECONDS = 7200; // 2 hours
 
 function isRedisReady(): boolean {
   return (redis as any)?.status === 'ready';

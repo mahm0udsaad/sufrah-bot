@@ -185,6 +185,7 @@ model Restaurant {
   webhookLogs        WebhookLog[]
   bots               RestaurantBot[]
   monthlyUsage       MonthlyUsage[]
+  usageAdjustments   UsageAdjustment[]
   conversationSessions ConversationSession[]
 
   @@index([userId])
@@ -317,6 +318,21 @@ model MonthlyUsage {
   @@unique([restaurantId, month, year])
   @@index([restaurantId, year, month])
   @@map("MonthlyUsage")
+}
+
+model UsageAdjustment {
+  id           String     @id @default(cuid())
+  restaurantId String     @map("restaurant_id")
+  month        Int        @map("month")
+  year         Int        @map("year")
+  amount       Int        @map("amount")
+  type         String     @map("type")
+  reason       String?    @map("reason")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, year, month])
+  @@map("UsageAdjustment")
 }
 
 model ConversationSession {

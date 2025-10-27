@@ -287,3 +287,45 @@ export async function trackUsage(params: TrackUsageParams): Promise<void> {
 
   await trackMessage(restaurantId, conversation.customerWa, timestamp);
 }
+
+/**
+ * Records a positive usage adjustment (e.g., admin renewal +1000) for the current month.
+ * This does not change historical usage; quota computation will add these adjustments to the plan limit.
+ */
+export async function addUsageAdjustment(
+  restaurantId: string,
+  amount: number = 1000,
+  type: string = 'RENEW',
+  reason?: string,
+  referenceDate: Date = new Date()
+): Promise<void> {
+  const month = referenceDate.getMonth() + 1;
+  const year = referenceDate.getFullYear();
+
+  await prisma.usageAdjustment.create({
+    data: {
+      restaurantId,
+      month,
+      year,
+      amount,
+      type,
+      reason,
+    },
+  });
+}
+
+/**
+ * Sums all adjustments for the given restaurant in the given month/year.
+ */
+export async function getMonthlyAdjustmentsTotal(
+  restaurantId: string,
+  month: number,
+  year: number
+): Promise<number> {
+  const result = await prisma.usageAdjustment.aggregate({
+    where: { restaurantId, month, year },
+    _sum: { amount: true },
+  });
+  return result._sum.amount ?? 0;
+}
+

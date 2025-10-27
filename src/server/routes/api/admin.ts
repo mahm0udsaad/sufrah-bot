@@ -6,6 +6,8 @@
 import { jsonResponse } from '../../http';
 import { BOT_API_KEY } from '../../../config';
 import { prisma } from '../../../db/client';
+import { addUsageAdjustment } from '../../../services/usageTracking';
+import { checkQuota } from '../../../services/quotaEnforcement';
 import { getLocaleFromRequest, createLocalizedResponse } from '../../../services/i18n';
 import { getTemplateCacheMetrics } from '../../../services/templateCacheMetrics';
 import { redisClient } from '../../../redis/client';
@@ -165,6 +167,44 @@ export async function handleAdminApi(req: Request, url: URL): Promise<Response |
     };
 
     return jsonResponse(createLocalizedResponse(metrics, locale));
+  }
+
+  // POST /api/admin/usage/:restaurantId/renew - grant +1000 conversations (or custom amount)
+  if (req.method === 'POST') {
+    const renewMatch = url.pathname.match(/^\/api\/admin\/usage\/([^/]+)\/renew$/);
+    if (renewMatch) {
+      const auth = authenticate(req);
+      if (!auth.ok || !auth.isAdmin) {
+        return jsonResponse({ error: auth.error || 'Unauthorized' }, 401);
+      }
+
+      const restaurantId = renewMatch[1];
+      const body = (await req.json().catch(() => ({}))) as { amount?: number; reason?: string };
+      const amount = Number.isFinite(body.amount) ? Number(body.amount) : 1000;
+      const reason = body.reason;
+
+      // Ensure restaurant exists
+      const restaurant = await prisma.restaurant.findUnique({ where: { id: restaurantId } });
+      if (!restaurant) {
+        return jsonResponse({ error: 'Restaurant not found' }, 404);
+      }
+
+      await addUsageAdjustment(restaurantId, amount, 'RENEW', reason);
+
+      const quota = await checkQuota(restaurantId);
+      return jsonResponse({
+        success: true,
+        data: {
+          used: quota.used,
+          limit: quota.limit,
+          effectiveLimit: quota.effectiveLimit,
+          adjustedBy: quota.adjustedBy,
+          remaining: quota.remaining,
+          usagePercent: quota.usagePercent,
+          isNearingQuota: quota.isNearingQuota,
+        },
+      });
+    }
   }
 
   // GET /api/admin/restaurants - list all restaurants with key metrics

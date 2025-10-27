@@ -3,7 +3,7 @@
  * Checks and enforces conversation limits for restaurants based on their plan
  */
 
-import { getCurrentMonthUsage } from "./usageTracking";
+import { getCurrentMonthUsage, getMonthlyAdjustmentsTotal } from "./usageTracking";
 
 export interface PlanLimits {
   conversationsPerMonth: number;
@@ -18,6 +18,11 @@ export interface QuotaCheckResult {
   planName: string;
   errorMessage?: string;
   errorCode?: string;
+  // extended fields (non-breaking for existing callers)
+  effectiveLimit?: number; // plan limit + adjustments
+  adjustedBy?: number; // total adjustments this month
+  usagePercent?: number; // 0-100, undefined for unlimited
+  isNearingQuota?: boolean; // based on default 90% threshold
 }
 
 // Plan configurations - can be moved to database or config file later
@@ -74,19 +79,30 @@ export async function checkQuota(
   const usage = await getCurrentMonthUsage(restaurantId, referenceDate);
 
   const used = usage.conversationCount;
-  const limit = plan.conversationsPerMonth;
-  const remaining = Math.max(0, limit - used);
+  const planLimit = plan.conversationsPerMonth;
+
+  // Sum admin adjustments (top-ups) for effective limit
+  const month = referenceDate.getMonth() + 1;
+  const year = referenceDate.getFullYear();
+  const adjustedBy = planLimit === -1 ? 0 : await getMonthlyAdjustmentsTotal(restaurantId, month, year);
+  const effectiveLimit = planLimit === -1 ? -1 : planLimit + adjustedBy;
+  const limit = planLimit; // keep existing field as the base plan limit for backward compatibility
+  const remaining = effectiveLimit === -1 ? -1 : Math.max(0, effectiveLimit - used);
 
   // Check if quota is exceeded
-  if (used >= limit) {
+  if (effectiveLimit !== -1 && used >= effectiveLimit) {
     return {
       allowed: false,
       remaining: 0,
       used,
-      limit,
+      limit, // base plan limit
       planName: plan.name,
       errorCode: "QUOTA_EXCEEDED",
-      errorMessage: `Monthly conversation limit of ${limit} reached. Used: ${used} conversations. Please upgrade your plan or wait until next month.`,
+      errorMessage: `Monthly conversation limit of ${effectiveLimit} reached. Used: ${used} conversations. Please upgrade your plan or wait until next month.`,
+      effectiveLimit,
+      adjustedBy,
+      usagePercent: effectiveLimit === -1 ? undefined : Math.min(100, (used / effectiveLimit) * 100),
+      isNearingQuota: effectiveLimit === -1 ? false : used / effectiveLimit >= 0.9,
     };
   }
 
@@ -96,6 +112,10 @@ export async function checkQuota(
     used,
     limit,
     planName: plan.name,
+    effectiveLimit,
+    adjustedBy,
+    usagePercent: effectiveLimit === -1 ? undefined : Math.min(100, (used / effectiveLimit) * 100),
+    isNearingQuota: effectiveLimit === -1 ? false : used / effectiveLimit >= 0.9,
   };
 }
 

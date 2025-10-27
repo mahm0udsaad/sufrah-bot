@@ -102,6 +102,60 @@ export async function handleUsageApi(req: Request, url: URL): Promise<Response |
     return null;
   }
 
+  // GET /api/usage/alerts?threshold=0.9 - restaurants nearing quota (admin only)
+  if (url.pathname === '/api/usage/alerts') {
+    const auth = authenticate(req);
+    if (!auth.ok || !auth.isAdmin) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+
+    const threshold = Math.min(
+      Math.max(parseFloat(url.searchParams.get('threshold') || '0.9'), 0),
+      1
+    );
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200);
+    const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+
+    // Only active restaurants
+    const [restaurants, total] = await Promise.all([
+      prisma.restaurant.findMany({
+        where: { isActive: true },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+      prisma.restaurant.count({ where: { isActive: true } }),
+    ]);
+
+    const data = (
+      await Promise.all(
+        restaurants.map(async (r) => ({ r, quota: await checkQuota(r.id) }))
+      )
+    )
+      .filter(({ quota }) => quota.effectiveLimit !== -1 && (quota.usagePercent ?? 0) >= threshold * 100)
+      .map(({ r, quota }) => ({
+        restaurantId: r.id,
+        restaurantName: r.name,
+        used: quota.used,
+        limit: quota.effectiveLimit ?? quota.limit,
+        remaining: quota.remaining,
+        usagePercent: quota.usagePercent,
+        isNearingQuota: quota.isNearingQuota,
+        adjustedBy: quota.adjustedBy ?? 0,
+      }));
+
+    return jsonResponse({
+      data,
+      pagination: {
+        total,
+        limit,
+        offset,
+        hasMore: offset + limit < total,
+      },
+      threshold,
+    });
+  }
+
   // GET /api/usage - list all restaurants (admin only)
   if (url.pathname === '/api/usage') {
     const auth = authenticate(req);
@@ -140,6 +194,7 @@ export async function handleUsageApi(req: Request, url: URL): Promise<Response |
       const results = await Promise.all(
         restaurants.map(async (restaurant) => {
           const usage = restaurant.monthlyUsage[0];
+          const quotaStatus = await checkQuota(restaurant.id);
           const allowance = await calculateRemainingAllowance(
             restaurant.id,
             currentMonth,
@@ -153,6 +208,9 @@ export async function handleUsageApi(req: Request, url: URL): Promise<Response |
             conversationsThisMonth: usage?.conversationCount || 0,
             lastConversationAt: usage?.lastConversationAt?.toISOString() || null,
             allowance,
+            adjustedBy: quotaStatus.adjustedBy ?? 0,
+            usagePercent: quotaStatus.usagePercent ?? null,
+            isNearingQuota: quotaStatus.isNearingQuota ?? false,
             firstActivity: firstActivity?.toISOString() || null,
             lastActivity: lastActivity?.toISOString() || null,
             isActive: restaurant.isActive,
@@ -188,6 +246,7 @@ export async function handleUsageApi(req: Request, url: URL): Promise<Response |
         },
       });
 
+      const quotaStatus = await checkQuota(auth.restaurantId);
       const allowance = await calculateRemainingAllowance(
         auth.restaurantId,
         currentMonth,
@@ -201,6 +260,9 @@ export async function handleUsageApi(req: Request, url: URL): Promise<Response |
         conversationsThisMonth: usage?.conversationCount || 0,
         lastConversationAt: usage?.lastConversationAt?.toISOString() || null,
         allowance,
+        adjustedBy: quotaStatus.adjustedBy ?? 0,
+        usagePercent: quotaStatus.usagePercent ?? null,
+        isNearingQuota: quotaStatus.isNearingQuota ?? false,
         firstActivity: firstActivity?.toISOString() || null,
         lastActivity: lastActivity?.toISOString() || null,
         isActive: restaurant.isActive,
@@ -238,7 +300,12 @@ export async function handleUsageApi(req: Request, url: URL): Promise<Response |
       },
     });
 
-    const allowance = await calculateRemainingAllowance(restaurantId, currentMonth, currentYear);
+    const quotaStatus = await checkQuota(restaurantId);
+    const allowance = await calculateRemainingAllowance(
+      restaurantId,
+      currentMonth,
+      currentYear
+    );
     const { firstActivity, lastActivity } = await getActivityTimestamps(restaurantId);
 
     // Get historical data (last 6 months)
@@ -265,6 +332,9 @@ export async function handleUsageApi(req: Request, url: URL): Promise<Response |
       conversationsThisMonth: usage?.conversationCount || 0,
       lastConversationAt: usage?.lastConversationAt?.toISOString() || null,
       allowance,
+      adjustedBy: quotaStatus.adjustedBy ?? 0,
+      usagePercent: quotaStatus.usagePercent ?? null,
+      isNearingQuota: quotaStatus.isNearingQuota ?? false,
       firstActivity: firstActivity?.toISOString() || null,
       lastActivity: lastActivity?.toISOString() || null,
       isActive: restaurant.isActive,

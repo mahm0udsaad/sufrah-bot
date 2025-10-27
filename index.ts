@@ -32,6 +32,7 @@ import { handleTwilioForm, handleVerify, handleMeta } from './src/server/routes/
 import { handleConversationsDbApi } from './src/server/routes/api/conversationsDb';
 // Legacy ratings API removed - use dashboard API instead
 import { handleUsageApi } from './src/server/routes/api/usage';
+import { handleAdminApi as handleCoreAdminApi } from './src/server/routes/api/admin';
 import { getGlobalBotEnabled, setGlobalBotEnabled, getWelcomedUsersCount } from './src/state/bot';
 
 // Dashboard API imports
@@ -177,6 +178,10 @@ const server = Bun.serve({
     // Usage API (for dashboard)
     const usageResponse = await handleUsageApi(req, url);
     if (usageResponse) return usageResponse;
+
+    // Core Admin API (e.g., usage renew)
+    const coreAdminResponse = await handleCoreAdminApi(req, url);
+    if (coreAdminResponse) return coreAdminResponse;
 
     // Legacy in-memory conversations API removed - use dashboard or DB API instead
 

@@ -1039,44 +1039,54 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       const lastOrderNumber = session?.lastOrderNumber;
       console.log('🔢 lastOrderNumber from session:', lastOrderNumber);
 
-      if (!lastOrderNumber) {
-        console.log('⚠️ No lastOrderNumber in session for conversationId:', conversationId);
-        await sendBotText('لم نتمكن من العثور على طلب لتقييمه. شكراً لك!');
-        return;
-      }
-
-      // Find the order by reference number
+      // Find the order by reference number, or fallback to latest unrated order for this conversation
       try {
-        console.log('🔍 Looking for order with orderNumber:', lastOrderNumber, 'restaurantId:', restaurantContext.id);
-        
-        // First, let's see all orders for this conversation to debug
-        const allOrders = await prisma.order.findMany({
-          where: {
-            conversationId,
-          },
-          select: {
-            id: true,
-            orderReference: true,
-            rating: true,
-            status: true,
-            meta: true,
-            createdAt: true,
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-        });
-        console.log('📋 All recent orders for this conversation:', JSON.stringify(allOrders, null, 2));
-        
-        const order = await prisma.order.findFirst({
-          where: {
-            restaurantId: restaurantContext.id,
-            meta: {
-              path: ['orderNumber'],
-              equals: lastOrderNumber,
+        let order = null as any;
+        console.log('🔍 Trying primary lookup by orderNumber from session...');
+        if (lastOrderNumber) {
+          order = await prisma.order.findFirst({
+            where: {
+              restaurantId: restaurantContext.id,
+              OR: [
+                {
+                  meta: {
+                    path: ['orderNumber'],
+                    equals: lastOrderNumber,
+                  },
+                },
+                {
+                  orderReference: String(lastOrderNumber),
+                },
+              ],
             },
-          },
-          orderBy: { createdAt: 'desc' },
-        });
+            orderBy: { createdAt: 'desc' },
+          });
+        }
+
+        if (!order) {
+          console.log('🧭 Session missing or lookup failed. Falling back to latest unrated order for this customer.');
+          // Resolve the DB conversation id for this restaurant + customer
+          const conversationRecord = await (prisma as any).conversation?.findUnique?.({
+            where: {
+              restaurantId_customerWa: {
+                restaurantId: restaurantContext.id,
+                customerWa: conversationId,
+              },
+            },
+            select: { id: true },
+          });
+
+          if (conversationRecord?.id) {
+            order = await prisma.order.findFirst({
+              where: {
+                restaurantId: restaurantContext.id,
+                conversationId: conversationRecord.id,
+                rating: null,
+              },
+              orderBy: { createdAt: 'desc' },
+            });
+          }
+        }
 
         console.log('📦 Found order:', order ? {
           id: order.id,
@@ -1087,7 +1097,7 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
         } : 'null');
 
         if (!order) {
-          await sendBotText('لم نتمكن من العثور على طلبك. شكراً لاهتمامك!');
+          await sendBotText('لم نتمكن من العثور على طلب لتقييمه. شكراً لك!');
           return;
         }
 
