@@ -114,6 +114,26 @@ export async function getOrCreateMonthlyUsage(
     return existing;
   }
 
+  // Ensure restaurant exists to avoid FK violations
+  const restaurant = await prisma.restaurant.findUnique({
+    where: { id: restaurantId },
+    select: { id: true },
+  });
+
+  if (!restaurant) {
+    console.warn(
+      `⚠️ [UsageTracking] Skipping monthly usage creation: restaurant not found (id=${restaurantId}). Returning virtual record.`
+    );
+    return {
+      id: `virtual_${restaurantId}_${year}_${month}`,
+      restaurantId,
+      month,
+      year,
+      conversationCount: 0,
+      lastConversationAt: null,
+    };
+  }
+
   return await prisma.monthlyUsage.create({
     data: {
       restaurantId,
@@ -139,6 +159,26 @@ export async function incrementMonthlyUsage(
   year: number,
   timestamp: Date = new Date()
 ): Promise<MonthlyUsageRecord> {
+  // Ensure restaurant exists to avoid FK violations
+  const restaurant = await prisma.restaurant.findUnique({
+    where: { id: restaurantId },
+    select: { id: true },
+  });
+
+  if (!restaurant) {
+    console.warn(
+      `⚠️ [UsageTracking] Skipping monthly usage increment: restaurant not found (id=${restaurantId}). Returning virtual record.`
+    );
+    return {
+      id: `virtual_${restaurantId}_${year}_${month}`,
+      restaurantId,
+      month,
+      year,
+      conversationCount: 0,
+      lastConversationAt: null,
+    };
+  }
+
   const record = await prisma.monthlyUsage.upsert({
     where: {
       restaurantId_month_year: {

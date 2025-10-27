@@ -236,6 +236,12 @@ export async function handleUsageApi(req: any, url: any): Promise<any | null> {
       return jsonResponse({ error: auth.error || 'Unauthorized' }, status);
     }
 
+    // Ensure restaurant exists before building payload
+    const restaurant = await getRestaurantById(auth.restaurantId);
+    if (!restaurant) {
+      return jsonResponse({ error: 'Restaurant not found' }, 404);
+    }
+
     const payload = await buildUsageDetailsPayload(auth.restaurantId);
     if (!payload) return jsonResponse({ error: 'Restaurant not found' }, 404);
     return jsonResponse(payload);
