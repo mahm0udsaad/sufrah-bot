@@ -136,7 +136,68 @@ async function debugUsageApi(identifier: string) {
       };
     }
 
-    console.log('\n❌ No user or restaurant found with ID:', identifier);
+    // Try as bot/tenant ID
+    const bot = await prisma.restaurantBot.findUnique({
+      where: { id: identifier },
+      include: {
+        restaurant: {
+          include: {
+            user: true,
+            bots: true,
+            monthlyUsage: true,
+          },
+        },
+      },
+    });
+
+    if (bot) {
+      console.log('\n✅ Found BOT/TENANT:');
+      console.log(`   ID: ${bot.id}`);
+      console.log(`   Name: ${bot.name}`);
+      console.log(`   WhatsApp: ${bot.whatsappNumber}`);
+      console.log(`   Status: ${bot.status}, Active: ${bot.isActive}`);
+
+      if (bot.restaurant) {
+        const restaurant = bot.restaurant;
+        console.log('\n✅ Found RESTAURANT:');
+        console.log(`   ID: ${restaurant.id} ⚠️  THIS IS THE CORRECT ID TO USE`);
+        console.log(`   Name: ${restaurant.name}`);
+        console.log(`   User ID: ${restaurant.userId}`);
+        console.log(`   Status: ${restaurant.status}`);
+        console.log(`   Active: ${restaurant.isActive}`);
+
+        // Check quota
+        console.log('\n💳 Quota Status:');
+        const quota = await checkQuota(restaurant.id);
+        console.log(`   Plan: ${quota.planName}`);
+        console.log(`   Used: ${quota.used} / ${quota.limit === -1 ? 'Unlimited' : quota.limit}`);
+        console.log(`   Remaining: ${quota.remaining === -1 ? 'Unlimited' : quota.remaining}`);
+        console.log(`   Allowed: ${quota.allowed ? '✅' : '❌'}`);
+
+        // Check current month usage
+        console.log('\n📅 Current Month:');
+        const currentUsage = await getCurrentMonthUsage(restaurant.id);
+        console.log(`   Month: ${currentUsage.month}/${currentUsage.year}`);
+        console.log(`   Conversations: ${currentUsage.conversationCount}`);
+
+        console.log('\n🔗 Correct API Usage:');
+        console.log(`   The API now accepts any of these IDs:`);
+        console.log(`   - Bot/Tenant ID: ${bot.id}`);
+        console.log(`   - Restaurant ID: ${restaurant.id}`);
+        console.log(`   - User ID: ${restaurant.userId}`);
+        console.log(`\n   Via Header: X-Restaurant-Id: <any-id>`);
+        console.log(`   Via Query: ?tenantId=<any-id>`);
+
+        return {
+          botId: bot.id,
+          userId: restaurant.userId,
+          restaurantId: restaurant.id,
+          restaurantName: restaurant.name,
+        };
+      }
+    }
+
+    console.log('\n❌ No user, restaurant, or bot found with ID:', identifier);
     console.log('\n💡 Common issues:');
     console.log('   1. Using User ID instead of Restaurant ID');
     console.log('   2. Restaurant not created yet');
