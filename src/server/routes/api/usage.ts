@@ -129,17 +129,24 @@ async function buildDailyBreakdown(restaurantId: string, referenceDate: Date) {
 async function buildAdjustments(restaurantId: string, referenceDate: Date) {
   const month = referenceDate.getMonth() + 1;
   const year = referenceDate.getFullYear();
-  const adjustments = await (prisma as any).usageAdjustment.findMany({
-    where: { restaurantId, month, year },
-    orderBy: { createdAt: 'desc' },
-  });
-  return adjustments.map((a: any) => ({
-    id: a.id,
-    amount: a.amount,
-    type: a.type,
-    reason: a.reason || null,
-    createdAt: a.createdAt.toISOString(),
-  }));
+  try {
+    const adjustments = await (prisma as any).usageAdjustment.findMany({
+      where: { restaurantId, month, year },
+      orderBy: { createdAt: 'desc' },
+    });
+    return adjustments.map((a: any) => ({
+      id: a.id,
+      amount: a.amount,
+      type: a.type,
+      reason: a.reason || null,
+      createdAt: a.createdAt.toISOString(),
+    }));
+  } catch (error: any) {
+    if (error?.code === 'P2021') {
+      return [];
+    }
+    throw error;
+  }
 }
 
 async function buildRecentSessions(restaurantId: string, limit: number = 20) {

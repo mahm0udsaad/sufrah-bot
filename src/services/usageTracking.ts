@@ -322,10 +322,18 @@ export async function getMonthlyAdjustmentsTotal(
   month: number,
   year: number
 ): Promise<number> {
-  const result = await prisma.usageAdjustment.aggregate({
-    where: { restaurantId, month, year },
-    _sum: { amount: true },
-  });
-  return result._sum.amount ?? 0;
+  try {
+    const result = await (prisma as any).usageAdjustment.aggregate({
+      where: { restaurantId, month, year },
+      _sum: { amount: true },
+    });
+    return result._sum?.amount ?? 0;
+  } catch (error: any) {
+    // If the adjustments table is not yet migrated (P2021), default to 0
+    if (error?.code === 'P2021') {
+      return 0;
+    }
+    throw error;
+  }
 }
 
