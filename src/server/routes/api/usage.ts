@@ -12,7 +12,7 @@ type AuthResult = { ok: boolean; restaurantId?: string; isAdmin?: boolean; error
  * - PAT with X-Restaurant-Id header (dashboard access)
  * - API Key for admin access (list all restaurants)
  */
-function authenticate(req: Request): AuthResult {
+function authenticate(req: any): AuthResult {
   const authHeader = req.headers.get('authorization') || '';
   const apiKeyHeader = req.headers.get('x-api-key') || '';
 
@@ -46,7 +46,7 @@ async function calculateRemainingAllowance(
   currentYear: number
 ) {
   // Get quota limits using the shared enforcement service so dashboard matches backend enforcement
-  const quotaStatus = await checkQuota(restaurantId, undefined, new Date(currentYear, currentMonth - 1, 1));
+  const quotaStatus = await checkQuota(restaurantId);
 
   const monthlyLimit = quotaStatus.limit;
   const monthlyRemaining = quotaStatus.remaining;
@@ -94,12 +94,158 @@ async function getActivityTimestamps(restaurantId: string) {
 }
 
 /**
+ * Helpers for detailed usage
+ */
+function getMonthRange(reference: Date): { start: Date; end: Date; days: number } {
+  const start = new Date(reference.getFullYear(), reference.getMonth(), 1, 0, 0, 0, 0);
+  const end = new Date(reference.getFullYear(), reference.getMonth() + 1, 1, 0, 0, 0, 0);
+  const days = new Date(reference.getFullYear(), reference.getMonth() + 1, 0).getDate();
+  return { start, end, days };
+}
+
+async function buildDailyBreakdown(restaurantId: string, referenceDate: Date) {
+  const { start, days } = getMonthRange(referenceDate);
+  const results: Array<{ date: string; conversationsStarted: number; messages: number }> = [];
+  for (let i = 0; i < days; i++) {
+    const dayStart = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i, 0, 0, 0, 0);
+    const dayEnd = new Date(dayStart.getFullYear(), dayStart.getMonth(), dayStart.getDate() + 1, 0, 0, 0, 0);
+
+    const [conversationsStarted, messages] = await Promise.all([
+      prisma.conversationSession.count({
+        where: { restaurantId, sessionStart: { gte: dayStart, lt: dayEnd } },
+      }),
+      prisma.message.count({ where: { restaurantId, createdAt: { gte: dayStart, lt: dayEnd } } }),
+    ]);
+
+    results.push({
+      date: dayStart.toISOString().slice(0, 10),
+      conversationsStarted,
+      messages,
+    });
+  }
+  return results;
+}
+
+async function buildAdjustments(restaurantId: string, referenceDate: Date) {
+  const month = referenceDate.getMonth() + 1;
+  const year = referenceDate.getFullYear();
+  const adjustments = await (prisma as any).usageAdjustment.findMany({
+    where: { restaurantId, month, year },
+    orderBy: { createdAt: 'desc' },
+  });
+  return adjustments.map((a: any) => ({
+    id: a.id,
+    amount: a.amount,
+    type: a.type,
+    reason: a.reason || null,
+    createdAt: a.createdAt.toISOString(),
+  }));
+}
+
+async function buildRecentSessions(restaurantId: string, limit: number = 20) {
+  const sessions = await prisma.conversationSession.findMany({
+    where: { restaurantId },
+    orderBy: { sessionStart: 'desc' },
+    take: limit,
+    select: {
+      id: true,
+      customerWa: true,
+      sessionStart: true,
+      sessionEnd: true,
+      messageCount: true,
+    },
+  });
+  return sessions.map((s) => ({
+    id: s.id,
+    customerWa: s.customerWa,
+    sessionStart: s.sessionStart.toISOString(),
+    sessionEnd: s.sessionEnd.toISOString(),
+    messageCount: s.messageCount,
+  }));
+}
+
+async function buildUsageDetailsPayload(restaurantId: string) {
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+
+  const [restaurant, usage, quota, firstLast, dailyBreakdown, adjustments, recentSessions, activeSessions] = await Promise.all([
+    getRestaurantById(restaurantId),
+    prisma.monthlyUsage.findUnique({
+      where: { restaurantId_month_year: { restaurantId, month: currentMonth, year: currentYear } },
+    }),
+    checkQuota(restaurantId),
+    getActivityTimestamps(restaurantId),
+    buildDailyBreakdown(restaurantId, now),
+    buildAdjustments(restaurantId, now),
+    buildRecentSessions(restaurantId, 20),
+    prisma.conversationSession.count({ where: { restaurantId, sessionEnd: { gt: now } } }),
+  ]);
+
+  if (!restaurant) return null;
+
+  return {
+    restaurantId: restaurant.id,
+    restaurantName: restaurant.name,
+    isActive: restaurant.isActive,
+    quota: {
+      used: quota.used,
+      limit: quota.limit,
+      effectiveLimit: quota.effectiveLimit ?? quota.limit,
+      adjustedBy: quota.adjustedBy ?? 0,
+      remaining: quota.remaining,
+      usagePercent: quota.usagePercent ?? null,
+      isNearingQuota: quota.isNearingQuota ?? false,
+    },
+    monthlyUsage: {
+      month: currentMonth,
+      year: currentYear,
+      conversationCount: usage?.conversationCount || 0,
+      lastConversationAt: usage?.lastConversationAt?.toISOString() || null,
+    },
+    firstActivity: firstLast.firstActivity?.toISOString() || null,
+    lastActivity: firstLast.lastActivity?.toISOString() || null,
+    activeSessionsCount: activeSessions,
+    dailyBreakdown,
+    adjustments,
+    recentSessions,
+  };
+}
+
+/**
  * Handle GET /api/usage
  * Returns usage stats for a single restaurant or all restaurants (admin)
  */
-export async function handleUsageApi(req: Request, url: URL): Promise<Response | null> {
+export async function handleUsageApi(req: any, url: any): Promise<any | null> {
   if (req.method !== 'GET') {
     return null;
+  }
+
+  // GET /api/usage/details (PAT only) - detailed view for one restaurant
+  if (url.pathname === '/api/usage/details') {
+    const auth = authenticate(req);
+    if (!auth.ok || !auth.restaurantId) {
+      const status = auth.error?.includes('required') ? 400 : 401;
+      return jsonResponse({ error: auth.error || 'Unauthorized' }, status);
+    }
+
+    const payload = await buildUsageDetailsPayload(auth.restaurantId);
+    if (!payload) return jsonResponse({ error: 'Restaurant not found' }, 404);
+    return jsonResponse(payload);
+  }
+
+  // GET /api/usage/:restaurantId/details (admin only) - detailed view for one restaurant
+  const detailsMatch = url.pathname.match(/^\/api\/usage\/([^/]+)\/details$/);
+  if (detailsMatch) {
+    const auth = authenticate(req);
+    if (!auth.ok || !auth.isAdmin) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+
+    const restaurantId = detailsMatch[1];
+    const payload = await buildUsageDetailsPayload(restaurantId);
+    if (!payload) return jsonResponse({ error: 'Restaurant not found' }, 404);
+    return jsonResponse(payload);
   }
 
   // GET /api/usage/alerts?threshold=0.9 - restaurants nearing quota (admin only)
