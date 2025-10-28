@@ -14,7 +14,6 @@ import {
   getHashSuffix,
   sanitizeIdForName,
 } from '../utils/dataSignature';
-import { getReadableAddress } from '../utils/geocode';
 import { TWILIO_CONTENT_AUTH, SUPPORT_CONTACT } from '../config';
 import {
   MAX_ITEM_QUANTITY,
@@ -1225,11 +1224,12 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         }
       }
 
-      if (latitude && longitude) {
-        address = await getReadableAddress(latitude, longitude, process.env.NOMINATIM_USER_AGENT || '');
+      // If no address provided, use coordinates for display
+      if (!address && latitude && longitude) {
+        address = `📍 ${latitude}, ${longitude}`;
       }
 
-      if (!address) {
+      if (!latitude || !longitude) {
         await sendBotText('تعذر قراءة الموقع. فضلاً أعد مشاركة موقعك مرة أخرى.');
         updateOrderState(phoneNumber, { awaitingLocation: true });
         return;
