@@ -574,28 +574,59 @@ async function handleConversationMessages(req: Request, url: URL): Promise<Respo
   const data = {
     messages: orderedMessages.map((msg) => {
       const metadata = msg.metadata as any;
+      
+      // Format content for display
+      let displayContent = msg.content;
+      let templatePreview = null;
+      
+      // Handle template messages
+      if (metadata?.templateSid || metadata?.templatePreview) {
+        const preview = metadata.templatePreview;
+        
+        if (preview) {
+          templatePreview = {
+            sid: preview.sid || metadata.templateSid,
+            friendlyName: preview.friendlyName || metadata.templateName || 'Template',
+            language: preview.language || 'ar',
+            body: preview.body || msg.content,
+            contentType: preview.contentType || 'twilio/text',
+            buttons: preview.buttons || [],
+          };
+          
+          // Show user-friendly content instead of template SID
+          displayContent = `📋 ${preview.friendlyName || metadata.templateName || 'Template Message'}`;
+        } else if (metadata.templateName) {
+          displayContent = `📋 ${metadata.templateName}`;
+        } else if (metadata.templateSid) {
+          displayContent = '📋 Template Message';
+        }
+      }
+      
+      // Handle media messages
+      if (msg.mediaUrl) {
+        const mediaType = msg.messageType === 'image' ? '🖼️ Image' :
+                          msg.messageType === 'video' ? '🎥 Video' :
+                          msg.messageType === 'audio' ? '🎵 Audio' :
+                          msg.messageType === 'document' ? '📄 Document' : '📎 Media';
+        displayContent = msg.content || mediaType;
+      }
+      
       return {
         id: msg.id,
         conversation_id: msg.conversationId,
         from_phone: msg.direction === 'IN' ? conversation.customerWa : conversation.restaurantId,
         to_phone: msg.direction === 'IN' ? conversation.restaurantId : conversation.customerWa,
         message_type: msg.messageType,
-        content: msg.content,
+        content: displayContent,
+        original_content: msg.content, // Keep original for debugging
         media_url: msg.mediaUrl,
         timestamp: msg.createdAt.toISOString(),
         is_from_customer: msg.direction === 'IN',
         status: 'delivered',
         read_at: msg.createdAt.toISOString(),
-        content_sid: metadata?.contentSid || null,
+        content_sid: metadata?.templateSid || metadata?.contentSid || null,
         variables: metadata?.variables || {},
-        template_preview: metadata?.contentSid ? {
-          sid: metadata.contentSid,
-          friendlyName: 'template',
-          language: 'ar',
-          body: msg.content,
-          contentType: 'twilio/text',
-          buttons: [],
-        } : null,
+        template_preview: templatePreview,
       };
     }),
   };
@@ -714,21 +745,59 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
       },
     });
 
-    // Publish real-time event
+    // Format content for display (same as GET messages endpoint)
+    const metadata = storedMessage.metadata as any;
+    let displayContent = storedMessage.content;
+    let templatePreview = null;
+    
+    // Handle template messages
+    if (metadata?.templateSid || metadata?.templatePreview) {
+      const preview = metadata.templatePreview;
+      
+      if (preview) {
+        templatePreview = {
+          sid: preview.sid || metadata.templateSid,
+          friendlyName: preview.friendlyName || metadata.templateName || 'Template',
+          language: preview.language || 'ar',
+          body: preview.body || storedMessage.content,
+          contentType: preview.contentType || 'twilio/text',
+          buttons: preview.buttons || [],
+        };
+        
+        displayContent = `📋 ${preview.friendlyName || metadata.templateName || 'Template Message'}`;
+      } else if (metadata.templateName) {
+        displayContent = `📋 ${metadata.templateName}`;
+      } else if (metadata.templateSid) {
+        displayContent = '📋 Template Message';
+      }
+    }
+
+    // Publish real-time event with formatted content
     await eventBus.publishMessage(tenant.restaurantId, {
       type: 'message.sent',
       message: {
         id: storedMessage.id,
+        conversation_id: storedMessage.conversationId,
         conversationId: conversation.id,
+        from_phone: normalizedFrom,
+        to_phone: normalizedTo,
         fromPhone: normalizedFrom,
         toPhone: normalizedTo,
-        content: storedMessage.content,
+        content: displayContent,
+        original_content: storedMessage.content,
+        message_type: storedMessage.messageType,
         messageType: storedMessage.messageType,
         direction: 'OUT',
+        timestamp: storedMessage.createdAt.toISOString(),
         createdAt: storedMessage.createdAt,
+        wa_sid: storedMessage.waSid ?? sendResult.sid,
         waSid: storedMessage.waSid ?? sendResult.sid,
         channel: sendResult.channel,
+        is_from_customer: false,
         isFromCustomer: false,
+        status: 'sent',
+        template_preview: templatePreview,
+        content_sid: metadata?.templateSid || metadata?.contentSid || null,
       },
       conversation: {
         id: updatedConversation.id,
@@ -738,20 +807,25 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
       },
     });
 
-    // Return the stored message in the expected format
+    // Return the stored message in the expected format with formatted content
     const responseMessage = {
       id: storedMessage.id,
       conversation_id: storedMessage.conversationId,
-      content: storedMessage.content,
+      content: displayContent,
+      original_content: storedMessage.content,
       timestamp: storedMessage.createdAt.toISOString(),
       status: 'sent',
+      message_type: storedMessage.messageType,
       messageType: storedMessage.messageType,
       wa_sid: storedMessage.waSid,
       channel: sendResult.channel,
       from_phone: normalizedFrom,
       to_phone: normalizedTo,
       direction: 'OUT' as const,
+      is_from_customer: false,
       is_bot_active: updatedConversation.isBotActive,
+      template_preview: templatePreview,
+      content_sid: metadata?.templateSid || metadata?.contentSid || null,
     };
 
     return jsonResponse({ success: true, data: { message: responseMessage } });
@@ -876,21 +950,39 @@ async function handleSendMediaMessage(req: Request, url: URL): Promise<Response 
       },
     });
 
+    // Format media content for display
+    const mediaType = storedMessage.messageType === 'image' ? '🖼️ Image' :
+                      storedMessage.messageType === 'video' ? '🎥 Video' :
+                      storedMessage.messageType === 'audio' ? '🎵 Audio' :
+                      storedMessage.messageType === 'document' ? '📄 Document' : '📎 Media';
+    const displayContent = caption || mediaType;
+
+    // Publish real-time event with formatted content
     await eventBus.publishMessage(tenant.restaurantId, {
       type: 'message.sent',
       message: {
         id: storedMessage.id,
+        conversation_id: storedMessage.conversationId,
         conversationId: conversation.id,
+        from_phone: normalizedFrom,
+        to_phone: normalizedTo,
         fromPhone: normalizedFrom,
         toPhone: normalizedTo,
-        content: storedMessage.content,
+        content: displayContent,
+        original_content: storedMessage.content,
+        message_type: storedMessage.messageType,
         messageType: storedMessage.messageType,
+        media_url: storedMessage.mediaUrl,
         mediaUrl: storedMessage.mediaUrl,
         direction: 'OUT',
+        timestamp: storedMessage.createdAt.toISOString(),
         createdAt: storedMessage.createdAt,
+        wa_sid: storedMessage.waSid ?? sendResult.message.sid,
         waSid: storedMessage.waSid ?? sendResult.message.sid,
         channel: sendResult.message.channel ?? 'whatsapp',
+        is_from_customer: false,
         isFromCustomer: false,
+        status: 'sent',
       },
       conversation: {
         id: updatedConversation.id,
@@ -903,16 +995,19 @@ async function handleSendMediaMessage(req: Request, url: URL): Promise<Response 
     const responseMessage = {
       id: storedMessage.id,
       conversation_id: storedMessage.conversationId,
-      content: storedMessage.content,
+      content: displayContent,
+      original_content: storedMessage.content,
       media_url: storedMessage.mediaUrl,
       timestamp: storedMessage.createdAt.toISOString(),
       status: 'sent',
+      message_type: storedMessage.messageType,
       messageType: storedMessage.messageType,
       wa_sid: storedMessage.waSid,
       channel: sendResult.message.channel ?? 'whatsapp',
       from_phone: normalizedFrom,
       to_phone: normalizedTo,
       direction: 'OUT' as const,
+      is_from_customer: false,
       is_bot_active: updatedConversation.isBotActive,
     };
 
