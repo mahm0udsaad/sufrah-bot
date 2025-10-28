@@ -137,6 +137,13 @@ export async function getRecentMessages(
 }
 ```
 
+### Sending Manual Messages From the Dashboard Backend
+- Use the bot API endpoint `POST /api/conversations/:conversationId/messages?tenantId={botId}`.
+- Send JSON body: `{ "content": "Text to customer", "messageType": "text" }`. Optional `fromNumber` lets you override the sender line if the restaurant owns multiple numbers.
+- The server now delivers the message through Twilio (handles 24h session fallbacks), stores the outbound record, publishes the real-time event, and automatically switches `isBotActive` to `false` so the bot pauses while the agent handles the chat.
+- Only plain text is supported right now; media/template sends must still go through the existing worker flow.
+- Successful responses include the message record with the Twilio SID and the updated bot state so the UI can reflect the handover.
+
 ### UI Mapping Hints
 - Bubble side: `isFromCustomer = (direction === 'IN')`.
 - Show `content`, and preview `mediaUrl` for images/documents/audio.
@@ -154,5 +161,4 @@ export async function getRecentMessages(
 - Fetch by `conversationId` → expect ascending messages.
 - Fetch by `restaurantId + phone` → resolves conversation then returns messages.
 - Pagination with `before` returns strictly older rows and maintains order ascending after reverse.
-
 

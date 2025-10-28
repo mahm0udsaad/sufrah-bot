@@ -16,6 +16,9 @@ import {
 } from '../../../services/i18n';
 import { checkQuota } from '../../../services/quotaEnforcement';
 import { resolveRestaurantId } from '../../../utils/restaurantResolver';
+import { TwilioClientManager } from '../../../twilio/clientManager';
+import { sendWhatsAppMessage } from '../../../services/whatsapp';
+import { eventBus } from '../../../redis/eventBus';
 
 /**
  * Get tenantId from query parameter and resolve to restaurantId
@@ -41,6 +44,8 @@ async function getTenantAndRestaurantId(url: URL): Promise<{
     restaurantName: resolved.botName || 'Restaurant',
   };
 }
+
+const twilioClientManager = new TwilioClientManager();
 
 /**
  * GET /api/dashboard/overview
@@ -549,6 +554,10 @@ async function handleConversationMessages(req: Request, url: URL): Promise<Respo
     return jsonResponse({ success: false, error: 'Conversation not found' }, 404);
   }
 
+  if (!conversation.customerWa) {
+    return jsonResponse({ success: false, error: 'Conversation is missing customer phone number' }, 422);
+  }
+
   const messages = await prisma.message.findMany({
     where: {
       conversationId,
@@ -607,8 +616,19 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
 
-  if (!body.content || !body.messageType) {
-    return jsonResponse({ success: false, error: 'content and messageType are required' }, 400);
+  const messageTypeRaw = typeof body.messageType === 'string' ? body.messageType.trim().toLowerCase() : '';
+  const messageType = messageTypeRaw || 'text';
+  const content = typeof body.content === 'string' ? body.content.trim() : '';
+
+  if (!content) {
+    return jsonResponse({ success: false, error: 'content is required' }, 400);
+  }
+
+  if (messageType !== 'text') {
+    return jsonResponse({
+      success: false,
+      error: 'Only text messages are supported from the dashboard agent right now.',
+    }, 400);
   }
 
   const conversation = await prisma.conversation.findFirst({
@@ -622,37 +642,120 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
     return jsonResponse({ success: false, error: 'Conversation not found' }, 404);
   }
 
-  // Create message in database
-  const message = await prisma.message.create({
-    data: {
-      conversationId: conversationId,
-      restaurantId: tenant.restaurantId,
-      direction: 'OUT',
-      messageType: body.messageType,
-      content: body.content,
-      mediaUrl: body.mediaUrl || null,
-    },
-  });
+  const twilioClient = await twilioClientManager.getClient(tenant.restaurantId);
+  if (!twilioClient) {
+    return jsonResponse({ success: false, error: 'Twilio client not available' }, 503);
+  }
 
-  // Update conversation
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: {
-      lastMessageAt: new Date(),
-    },
-  });
+  let fromNumberOverride: string | undefined =
+    typeof body.fromNumber === 'string' && body.fromNumber.trim()
+      ? body.fromNumber.trim()
+      : undefined;
 
-  const data = {
-    message: {
-      id: message.id,
-      conversation_id: message.conversationId,
-      content: message.content,
-      timestamp: message.createdAt.toISOString(),
-      status: 'sent',
-    },
-  };
+  if (!fromNumberOverride) {
+    const restaurant = await prisma.restaurant.findUnique({
+      where: { id: tenant.restaurantId },
+      select: { whatsappNumber: true },
+    });
+    fromNumberOverride = restaurant?.whatsappNumber ?? undefined;
+  }
 
-  return jsonResponse({ success: true, data });
+  try {
+    const sendResult = await sendWhatsAppMessage(
+      twilioClient,
+      tenant.restaurantId,
+      conversation.customerWa,
+      content,
+      {
+        fromNumber: fromNumberOverride,
+      }
+    );
+
+    let savedMessage = await prisma.message.findFirst({
+      where: {
+        conversationId: conversation.id,
+        waSid: sendResult.sid,
+      },
+    });
+
+    if (!savedMessage) {
+      savedMessage = await prisma.message.findFirst({
+        where: { conversationId: conversation.id },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    if (savedMessage) {
+      const metadata = {
+        ...(savedMessage.metadata ? (savedMessage.metadata as Record<string, any>) : {}),
+        source: 'dashboard_agent',
+        channel: sendResult.channel,
+      };
+      savedMessage = await prisma.message.update({
+        where: { id: savedMessage.id },
+        data: { metadata },
+      });
+    }
+
+    const updatedConversation = await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        isBotActive: false,
+        unreadCount: 0,
+        lastMessageAt: new Date(),
+      },
+    });
+
+    await eventBus.publishMessage(tenant.restaurantId, {
+      type: 'message.sent',
+      message: {
+        id: savedMessage?.id ?? null,
+        conversationId: conversation.id,
+        content: savedMessage?.content ?? content,
+        messageType: savedMessage?.messageType ?? 'text',
+        direction: 'OUT',
+        createdAt: savedMessage?.createdAt ?? new Date(),
+        waSid: savedMessage?.waSid ?? sendResult.sid,
+        channel: sendResult.channel,
+      },
+      conversation: {
+        id: updatedConversation.id,
+        isBotActive: updatedConversation.isBotActive,
+        unreadCount: updatedConversation.unreadCount,
+        lastMessageAt: updatedConversation.lastMessageAt,
+      },
+    });
+
+    const finalMessage = savedMessage
+      ? {
+          id: savedMessage.id,
+          conversation_id: savedMessage.conversationId,
+          content: savedMessage.content,
+          timestamp: savedMessage.createdAt.toISOString(),
+          status: 'sent',
+          messageType: savedMessage.messageType,
+          wa_sid: savedMessage.waSid,
+          channel: sendResult.channel,
+          is_bot_active: updatedConversation.isBotActive,
+        }
+      : {
+          id: null,
+          conversation_id: conversation.id,
+          content,
+          timestamp: new Date().toISOString(),
+          status: 'sent',
+          messageType: 'text',
+          wa_sid: sendResult.sid,
+          channel: sendResult.channel,
+          is_bot_active: updatedConversation.isBotActive,
+        };
+
+    return jsonResponse({ success: true, data: { message: finalMessage } });
+  } catch (error: any) {
+    console.error('❌ [DashboardSend] Failed to send message:', error);
+    const errorMessage = error?.message || 'Failed to send message';
+    return jsonResponse({ success: false, error: errorMessage }, 500);
+  }
 }
 
 /**
@@ -740,4 +843,3 @@ export async function handleDashboardApi(req: Request, url: URL): Promise<Respon
 
   return null;
 }
-
