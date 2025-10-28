@@ -27,13 +27,14 @@ async function setupRedisEventBusListeners() {
     // Subscribe to messages
     await eventBus.subscribeToMessages(restaurant.id, (data) => {
       console.log(`📨 Redis event received for restaurant ${restaurant.id}:`, data.type);
-      
+
       // Map Redis event to WebSocket event format
-      // Redis: { type: 'message.received', message: {...}, conversation: {...} }
+      // Redis: { type: 'message.*', message: {...}, conversation?: {...} }
       // WebSocket: { type: 'message.created', data: Message }
-      if (data.type === 'message.received' && data.message) {
+      const type = typeof data.type === 'string' ? data.type : '';
+      if (type.startsWith('message.') && data.message) {
         broadcast({ type: 'message.created', data: data.message });
-        
+
         // Also broadcast conversation update if included
         if (data.conversation) {
           broadcast({ type: 'conversation.updated', data: data.conversation });
@@ -83,5 +84,4 @@ export const wsHandlers = {
     if (text === 'ping') ws.send('pong');
   },
 };
-
 
