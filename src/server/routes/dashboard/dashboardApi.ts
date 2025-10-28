@@ -680,24 +680,27 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
     const normalizedFrom = normalizePhoneNumber(fromNumberOverride ?? '');
     const normalizedTo = normalizePhoneNumber(conversation.customerWa);
 
-    // Create the message in the database immediately (same as media messages)
-    const storedMessage = await createOutboundMessage({
-      conversationId: conversation.id,
-      restaurantId: tenant.restaurantId,
-      waSid: sendResult.sid,
-      fromPhone: normalizedFrom,
-      toPhone: normalizedTo,
-      messageType: 'text',
-      content,
-      metadata: {
-        source: 'dashboard_agent',
-        channel: sendResult.channel,
-      },
-    });
+    // Fetch the message that was already created by sendWhatsAppMessage
+    // We need to poll briefly because the message creation happens asynchronously
+    let storedMessage = null;
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    while (!storedMessage && attempts < maxAttempts) {
+      storedMessage = await prisma.message.findUnique({
+        where: { waSid: sendResult.sid },
+      });
+      
+      if (!storedMessage) {
+        attempts++;
+        // Wait 50ms before retrying
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    }
 
     if (!storedMessage) {
-      console.error('❌ [DashboardSend] Failed to create or retrieve message record');
-      return jsonResponse({ success: false, error: 'Failed to store message' }, 500);
+      console.error('❌ [DashboardSend] Failed to retrieve message record after sending');
+      return jsonResponse({ success: false, error: 'Failed to retrieve message' }, 500);
     }
 
     // Update conversation state
@@ -842,6 +845,7 @@ async function handleSendMediaMessage(req: Request, url: URL): Promise<Response 
     const normalizedFrom = normalizePhoneNumber(fromNumberOverride);
     const normalizedTo = normalizePhoneNumber(conversation.customerWa);
 
+    // Media messages are created immediately by sendMediaMessage, so we should find it right away
     const storedMessage = await createOutboundMessage({
       conversationId: conversation.id,
       restaurantId: tenant.restaurantId,

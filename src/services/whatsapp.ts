@@ -14,8 +14,6 @@ import {
   standardizeWhatsappNumber,
 } from '../utils/phone';
 import {
-  TWILIO_ACCOUNT_SID,
-  TWILIO_AUTH_TOKEN,
   TWILIO_WHATSAPP_FROM,
   TWILIO_API_KEY,
   TWILIO_API_SECRET,
@@ -582,6 +580,7 @@ export async function notifyRestaurantOrder(
       console.error('❌ [WhatsAppNotify] Failed to create or retrieve message record');
       throw new Error('Failed to store message');
     }
+
 
     await updateConversation(conversation.id, {
       lastMessageAt: new Date(),
