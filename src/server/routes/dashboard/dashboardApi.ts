@@ -18,7 +18,10 @@ import { checkQuota } from '../../../services/quotaEnforcement';
 import { resolveRestaurantId } from '../../../utils/restaurantResolver';
 import { TwilioClientManager } from '../../../twilio/clientManager';
 import { sendWhatsAppMessage } from '../../../services/whatsapp';
+import { sendMediaMessage } from '../../../twilio/messaging';
 import { eventBus } from '../../../redis/eventBus';
+import { createOutboundMessage } from '../../../db/messageService';
+import { normalizePhoneNumber } from '../../../utils/phone';
 
 /**
  * Get tenantId from query parameter and resolve to restaurantId
@@ -685,6 +688,13 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
       });
     }
 
+    const fallbackId = sendResult.sid;
+    const fallbackCreatedAt = new Date();
+    const renderedCreatedAt = savedMessage?.createdAt ?? fallbackCreatedAt;
+    const renderedContent = savedMessage?.content ?? content;
+    const renderedMessageType = savedMessage?.messageType ?? 'text';
+    const renderedId = savedMessage?.id ?? fallbackId;
+
     if (savedMessage) {
       const metadata = {
         ...(savedMessage.metadata ? (savedMessage.metadata as Record<string, any>) : {}),
@@ -709,14 +719,17 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
     await eventBus.publishMessage(tenant.restaurantId, {
       type: 'message.sent',
       message: {
-        id: savedMessage?.id ?? null,
+        id: renderedId,
         conversationId: conversation.id,
-        content: savedMessage?.content ?? content,
-        messageType: savedMessage?.messageType ?? 'text',
+        fromPhone: fromNumberOverride ?? null,
+        toPhone: conversation.customerWa,
+        content: renderedContent,
+        messageType: renderedMessageType,
         direction: 'OUT',
-        createdAt: savedMessage?.createdAt ?? new Date(),
+        createdAt: renderedCreatedAt,
         waSid: savedMessage?.waSid ?? sendResult.sid,
         channel: sendResult.channel,
+        isFromCustomer: false,
       },
       conversation: {
         id: updatedConversation.id,
@@ -736,17 +749,23 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
           messageType: savedMessage.messageType,
           wa_sid: savedMessage.waSid,
           channel: sendResult.channel,
+          from_phone: fromNumberOverride ?? null,
+          to_phone: conversation.customerWa,
+          direction: 'OUT',
           is_bot_active: updatedConversation.isBotActive,
         }
       : {
-          id: null,
+          id: renderedId,
           conversation_id: conversation.id,
           content,
-          timestamp: new Date().toISOString(),
+          timestamp: fallbackCreatedAt.toISOString(),
           status: 'sent',
           messageType: 'text',
           wa_sid: sendResult.sid,
           channel: sendResult.channel,
+          from_phone: fromNumberOverride ?? null,
+          to_phone: conversation.customerWa,
+          direction: 'OUT',
           is_bot_active: updatedConversation.isBotActive,
         };
 
@@ -754,6 +773,162 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
   } catch (error: any) {
     console.error('❌ [DashboardSend] Failed to send message:', error);
     const errorMessage = error?.message || 'Failed to send message';
+    return jsonResponse({ success: false, error: errorMessage }, 500);
+  }
+}
+
+/**
+ * POST /api/conversations/:conversationId/send-media
+ * Send a media message
+ */
+async function handleSendMediaMessage(req: Request, url: URL): Promise<Response | null> {
+  const match = url.pathname.match(/^\/api\/conversations\/([^/]+)\/send-media$/);
+  if (!match || req.method !== 'POST') {
+    return null;
+  }
+
+  const conversationId = match[1]!;
+  const body: any = await req.json();
+
+  const mediaUrl = typeof body.mediaUrl === 'string' ? body.mediaUrl.trim() : '';
+  if (!mediaUrl) {
+    return jsonResponse({ success: false, error: 'mediaUrl is required' }, 400);
+  }
+
+  const caption = typeof body.caption === 'string' ? body.caption.trim() : undefined;
+  const rawMediaType =
+    typeof body.mediaType === 'string' ? body.mediaType.trim().toLowerCase() : undefined;
+  const allowedMediaTypes = new Set(['image', 'video', 'audio', 'document']);
+  const explicitMediaType = allowedMediaTypes.has(rawMediaType || '')
+    ? (rawMediaType as 'image' | 'video' | 'audio' | 'document')
+    : undefined;
+
+  const tenant = await getTenantAndRestaurantId(url);
+  if (!tenant) {
+    return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
+  }
+
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      id: conversationId,
+      restaurantId: tenant.restaurantId,
+    },
+  });
+
+  if (!conversation) {
+    return jsonResponse({ success: false, error: 'Conversation not found' }, 404);
+  }
+
+  if (!conversation.customerWa) {
+    return jsonResponse({ success: false, error: 'Conversation is missing customer phone number' }, 422);
+  }
+
+  const twilioClient = await twilioClientManager.getClient(tenant.restaurantId);
+  if (!twilioClient) {
+    return jsonResponse({ success: false, error: 'Twilio client not available' }, 503);
+  }
+
+  let fromNumberOverride: string | undefined =
+    typeof body.fromNumber === 'string' && body.fromNumber.trim()
+      ? body.fromNumber.trim()
+      : undefined;
+
+  if (!fromNumberOverride) {
+    const restaurant = await prisma.restaurant.findUnique({
+      where: { id: tenant.restaurantId },
+      select: { whatsappNumber: true },
+    });
+    fromNumberOverride = restaurant?.whatsappNumber ?? undefined;
+  }
+
+  if (!fromNumberOverride) {
+    return jsonResponse({ success: false, error: 'Restaurant is missing a WhatsApp sender number' }, 422);
+  }
+
+  try {
+    const sendResult = await sendMediaMessage(
+      twilioClient,
+      fromNumberOverride,
+      conversation.customerWa,
+      {
+        mediaUrls: [mediaUrl],
+        caption,
+        messageType: explicitMediaType,
+      }
+    );
+
+    const normalizedFrom = normalizePhoneNumber(fromNumberOverride);
+    const normalizedTo = normalizePhoneNumber(conversation.customerWa);
+
+    const storedMessage = await createOutboundMessage({
+      conversationId: conversation.id,
+      restaurantId: tenant.restaurantId,
+      waSid: sendResult.message.sid,
+      fromPhone: normalizedFrom,
+      toPhone: normalizedTo,
+      messageType: sendResult.messageType,
+      content: caption || `[media:${sendResult.messageType}]`,
+      mediaUrl,
+      metadata: {
+        source: 'dashboard_agent',
+        channel: sendResult.message.channel ?? 'whatsapp',
+      },
+    });
+
+    const now = new Date();
+    const updatedConversation = await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        isBotActive: false,
+        unreadCount: 0,
+        lastMessageAt: now,
+      },
+    });
+
+    await eventBus.publishMessage(tenant.restaurantId, {
+      type: 'message.sent',
+      message: {
+        id: storedMessage.id,
+        conversationId: conversation.id,
+        fromPhone: normalizedFrom,
+        toPhone: normalizedTo,
+        content: storedMessage.content,
+        messageType: storedMessage.messageType,
+        mediaUrl: storedMessage.mediaUrl,
+        direction: 'OUT',
+        createdAt: storedMessage.createdAt,
+        waSid: storedMessage.waSid ?? sendResult.message.sid,
+        channel: sendResult.message.channel ?? 'whatsapp',
+        isFromCustomer: false,
+      },
+      conversation: {
+        id: updatedConversation.id,
+        isBotActive: updatedConversation.isBotActive,
+        unreadCount: updatedConversation.unreadCount,
+        lastMessageAt: updatedConversation.lastMessageAt,
+      },
+    });
+
+    const responseMessage = {
+      id: storedMessage.id,
+      conversation_id: storedMessage.conversationId,
+      content: storedMessage.content,
+      media_url: storedMessage.mediaUrl,
+      timestamp: storedMessage.createdAt.toISOString(),
+      status: 'sent',
+      messageType: storedMessage.messageType,
+      wa_sid: storedMessage.waSid,
+      channel: sendResult.message.channel ?? 'whatsapp',
+      from_phone: normalizedFrom,
+      to_phone: normalizedTo,
+      direction: 'OUT' as const,
+      is_bot_active: updatedConversation.isBotActive,
+    };
+
+    return jsonResponse({ success: true, data: { message: responseMessage } });
+  } catch (error: any) {
+    console.error('❌ [DashboardSendMedia] Failed to send media message:', error);
+    const errorMessage = error?.message || 'Failed to send media message';
     return jsonResponse({ success: false, error: errorMessage }, 500);
   }
 }
@@ -837,6 +1012,9 @@ export async function handleDashboardApi(req: Request, url: URL): Promise<Respon
 
   const sendMessageResponse = await handleSendMessage(req, url);
   if (sendMessageResponse) return sendMessageResponse;
+
+  const sendMediaResponse = await handleSendMediaMessage(req, url);
+  if (sendMediaResponse) return sendMediaResponse;
 
   const toggleBotResponse = await handleToggleBot(req, url);
   if (toggleBotResponse) return toggleBotResponse;
