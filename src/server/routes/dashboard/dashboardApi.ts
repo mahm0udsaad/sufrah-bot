@@ -676,60 +676,49 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
       }
     );
 
-    let savedMessage = await prisma.message.findFirst({
-      where: {
-        conversationId: conversation.id,
-        waSid: sendResult.sid,
+    // Normalize phone numbers for database storage
+    const normalizedFrom = normalizePhoneNumber(fromNumberOverride ?? '');
+    const normalizedTo = normalizePhoneNumber(conversation.customerWa);
+
+    // Create the message in the database immediately (same as media messages)
+    const storedMessage = await createOutboundMessage({
+      conversationId: conversation.id,
+      restaurantId: tenant.restaurantId,
+      waSid: sendResult.sid,
+      fromPhone: normalizedFrom,
+      toPhone: normalizedTo,
+      messageType: 'text',
+      content,
+      metadata: {
+        source: 'dashboard_agent',
+        channel: sendResult.channel,
       },
     });
 
-    if (!savedMessage) {
-      savedMessage = await prisma.message.findFirst({
-        where: { conversationId: conversation.id },
-        orderBy: { createdAt: 'desc' },
-      });
-    }
-
-    const fallbackId = sendResult.sid;
-    const fallbackCreatedAt = new Date();
-    const renderedCreatedAt = savedMessage?.createdAt ?? fallbackCreatedAt;
-    const renderedContent = savedMessage?.content ?? content;
-    const renderedMessageType = savedMessage?.messageType ?? 'text';
-    const renderedId = savedMessage?.id ?? fallbackId;
-
-    if (savedMessage) {
-      const metadata = {
-        ...(savedMessage.metadata ? (savedMessage.metadata as Record<string, any>) : {}),
-        source: 'dashboard_agent',
-        channel: sendResult.channel,
-      };
-      savedMessage = await prisma.message.update({
-        where: { id: savedMessage.id },
-        data: { metadata },
-      });
-    }
-
+    // Update conversation state
+    const now = new Date();
     const updatedConversation = await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
         isBotActive: false,
         unreadCount: 0,
-        lastMessageAt: new Date(),
+        lastMessageAt: now,
       },
     });
 
+    // Publish real-time event
     await eventBus.publishMessage(tenant.restaurantId, {
       type: 'message.sent',
       message: {
-        id: renderedId,
+        id: storedMessage.id,
         conversationId: conversation.id,
-        fromPhone: fromNumberOverride ?? null,
-        toPhone: conversation.customerWa,
-        content: renderedContent,
-        messageType: renderedMessageType,
+        fromPhone: normalizedFrom,
+        toPhone: normalizedTo,
+        content: storedMessage.content,
+        messageType: storedMessage.messageType,
         direction: 'OUT',
-        createdAt: renderedCreatedAt,
-        waSid: savedMessage?.waSid ?? sendResult.sid,
+        createdAt: storedMessage.createdAt,
+        waSid: storedMessage.waSid ?? sendResult.sid,
         channel: sendResult.channel,
         isFromCustomer: false,
       },
@@ -741,37 +730,23 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
       },
     });
 
-    const finalMessage = savedMessage
-      ? {
-          id: savedMessage.id,
-          conversation_id: savedMessage.conversationId,
-          content: savedMessage.content,
-          timestamp: savedMessage.createdAt.toISOString(),
-          status: 'sent',
-          messageType: savedMessage.messageType,
-          wa_sid: savedMessage.waSid,
-          channel: sendResult.channel,
-          from_phone: fromNumberOverride ?? null,
-          to_phone: conversation.customerWa,
-          direction: 'OUT',
-          is_bot_active: updatedConversation.isBotActive,
-        }
-      : {
-          id: renderedId,
-          conversation_id: conversation.id,
-          content,
-          timestamp: fallbackCreatedAt.toISOString(),
-          status: 'sent',
-          messageType: 'text',
-          wa_sid: sendResult.sid,
-          channel: sendResult.channel,
-          from_phone: fromNumberOverride ?? null,
-          to_phone: conversation.customerWa,
-          direction: 'OUT',
-          is_bot_active: updatedConversation.isBotActive,
-        };
+    // Return the stored message in the expected format
+    const responseMessage = {
+      id: storedMessage.id,
+      conversation_id: storedMessage.conversationId,
+      content: storedMessage.content,
+      timestamp: storedMessage.createdAt.toISOString(),
+      status: 'sent',
+      messageType: storedMessage.messageType,
+      wa_sid: storedMessage.waSid,
+      channel: sendResult.channel,
+      from_phone: normalizedFrom,
+      to_phone: normalizedTo,
+      direction: 'OUT' as const,
+      is_bot_active: updatedConversation.isBotActive,
+    };
 
-    return jsonResponse({ success: true, data: { message: finalMessage } });
+    return jsonResponse({ success: true, data: { message: responseMessage } });
   } catch (error: any) {
     console.error('❌ [DashboardSend] Failed to send message:', error);
     const errorMessage = error?.message || 'Failed to send message';

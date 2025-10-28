@@ -1236,40 +1236,60 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
       }
 
       // Check delivery availability using the new Sufrah API
-      if (latitude && longitude && merchantId) {
-        try {
-          console.log(`🔍 [Location Check] About to check delivery availability...`);
-          const isAvailable = await checkDeliveryAvailability(merchantId, latitude, longitude);
-          console.log(`🔍 [Location Check] Received response:`, isAvailable);
-          console.log(`🔍 [Location Check] Response type:`, typeof isAvailable);
-          console.log(`🔍 [Location Check] Response value (strict):`, isAvailable === true ? 'TRUE' : isAvailable === false ? 'FALSE' : 'OTHER');
-          
-          // Handle both boolean and string responses
-          const isDeliveryAvailable = isAvailable === true || isAvailable === 'true';
-          console.log(`🔍 [Location Check] Final decision: ${isDeliveryAvailable ? 'PROCEED' : 'REJECT'}`);
-          
-          if (!isDeliveryAvailable) {
-            // Area not covered for delivery
-            console.log(`❌ [Location Check] Delivery NOT available. Sending sorry message and resetting order...`);
-            await sendBotText('أهلاً وسهلاً 👋 حالياً عنوانك خارج نطاق التوصيل المعتمد للمطعم، نعتذر منك. بإمكانك  الطلب للاستلام من المطعم، ونسعد بخدمتك دائماً.');
-            
-            // Reset order state and send welcome message again
-            resetOrder(phoneNumber, { preserveRestaurant: true });
-            await sendWelcomeTemplate(phoneNumber, currentState.customerName || profileName, restaurantContext);
-            console.log(`✅ [Location Check] Order reset and welcome message sent. Flow stopped.`);
-            return;
-          }
-          
-          // Area is covered, proceed normally
-          console.log(`✅ [Location Check] Delivery IS available. Proceeding with order for location: ${address}`);
-        } catch (error) {
-          console.error('❌ [Location Check] Error checking delivery availability:', error);
-          console.error('❌ [Location Check] Error details:', error instanceof Error ? error.message : String(error));
-          // On error, log but continue with the order (fail open)
-          console.warn('⚠️ [Location Check] Proceeding with order despite availability check failure (fail-open policy)');
-        }
+      // Ensure we have all required data before proceeding
+      if (!merchantId) {
+        console.error('❌ [Location Check] Missing merchantId. Cannot verify delivery availability.');
+        await sendBotText('عذراً، حدث خطأ في معالجة موقعك. الرجاء المحاولة مرة أخرى أو التواصل مع الدعم.');
+        resetOrder(phoneNumber, { preserveRestaurant: true });
+        await sendWelcomeTemplate(phoneNumber, currentState.customerName || profileName, restaurantContext);
+        return;
       }
 
+      if (!latitude || !longitude) {
+        console.error('❌ [Location Check] Missing coordinates. Cannot verify delivery availability.');
+        await sendBotText('تعذر قراءة إحداثيات الموقع. فضلاً أعد مشاركة موقعك مرة أخرى.');
+        updateOrderState(phoneNumber, { awaitingLocation: true });
+        return;
+      }
+
+      try {
+        console.log(`🔍 [Location Check] About to check delivery availability...`);
+        const isAvailable = await checkDeliveryAvailability(merchantId, latitude, longitude);
+        console.log(`🔍 [Location Check] Received response:`, isAvailable);
+        console.log(`🔍 [Location Check] Response type:`, typeof isAvailable);
+        console.log(`🔍 [Location Check] Response value (strict):`, isAvailable === true ? 'TRUE' : isAvailable === false ? 'FALSE' : 'OTHER');
+        
+        // Handle both boolean and string responses
+        const isDeliveryAvailable = isAvailable === true || isAvailable === 'true';
+        console.log(`🔍 [Location Check] Final decision: ${isDeliveryAvailable ? 'PROCEED' : 'REJECT'}`);
+        
+        if (!isDeliveryAvailable) {
+          // Area not covered for delivery
+          console.log(`❌ [Location Check] Delivery NOT available. Sending sorry message and resetting order...`);
+          await sendBotText('أهلاً وسهلاً 👋 حالياً عنوانك خارج نطاق التوصيل المعتمد للمطعم، نعتذر منك. بإمكانك الطلب للاستلام من المطعم، ونسعد بخدمتك دائماً.');
+          
+          // Reset order state and send welcome message again to restart the flow
+          resetOrder(phoneNumber, { preserveRestaurant: true });
+          await sendWelcomeTemplate(phoneNumber, currentState.customerName || profileName, restaurantContext);
+          console.log(`✅ [Location Check] Order reset and welcome message sent. Flow stopped.`);
+          return;
+        }
+        
+        // Area is covered, proceed normally
+        console.log(`✅ [Location Check] Delivery IS available. Proceeding with order for location: ${address}`);
+      } catch (error) {
+        console.error('❌ [Location Check] Error checking delivery availability:', error);
+        console.error('❌ [Location Check] Error details:', error instanceof Error ? error.message : String(error));
+        
+        // On error, inform the user and restart the flow instead of proceeding with unverified location
+        await sendBotText('عذراً، حدث خطأ أثناء التحقق من توفر خدمة التوصيل لموقعك. الرجاء المحاولة مرة أخرى.');
+        resetOrder(phoneNumber, { preserveRestaurant: true });
+        await sendWelcomeTemplate(phoneNumber, currentState.customerName || profileName, restaurantContext);
+        console.log(`❌ [Location Check] Error occurred. Order reset and welcome message sent. Flow stopped.`);
+        return;
+      }
+
+      // Only reach here if delivery is available
       updateOrderState(phoneNumber, {
         locationAddress: address,
         latitude: latitude || undefined,
