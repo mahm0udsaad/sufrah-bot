@@ -25,7 +25,7 @@ export async function handleTenantsApi(req: Request, url: URL): Promise<Response
     console.log(`[Tenants API] Processing overview request for botId: ${botId}`);
     
     try {
-      // Authenticate and resolve RestaurantBot ID to Restaurant ID
+      // Authenticate 
       const auth = await authenticateDashboard(req);
 
       if (!auth.ok) {
@@ -34,10 +34,16 @@ export async function handleTenantsApi(req: Request, url: URL): Promise<Response
         return jsonResponse({ error: auth.error || 'Unauthorized' }, status);
       }
 
-      // Verify access - check against the bot ID from URL
-      if (!auth.isAdmin && auth.botId !== botId) {
-        console.log(`[Tenants API] Forbidden: auth.botId=${auth.botId}, requested=${botId}`);
-        return jsonResponse({ error: 'Forbidden' }, 403);
+      // Verify access - admins can access any tenant, non-admins must match
+      // Allow if: admin OR (auth.botId matches requested botId) OR (no botId in auth but admin)
+      const hasAccess = auth.isAdmin || auth.botId === botId || !auth.botId;
+      
+      if (!hasAccess) {
+        console.log(`[Tenants API] Forbidden: auth.botId=${auth.botId}, requested=${botId}, isAdmin=${auth.isAdmin}`);
+        return jsonResponse({ 
+          error: 'Forbidden - you do not have access to this tenant',
+          details: 'The X-Restaurant-Id header must match the requested tenant ID'
+        }, 403);
       }
 
       // Resolve the bot ID from URL to get restaurant details

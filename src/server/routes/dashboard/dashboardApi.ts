@@ -24,14 +24,22 @@ import { createOutboundMessage } from '../../../db/messageService';
 import { normalizePhoneNumber } from '../../../utils/phone';
 
 /**
- * Get tenantId from query parameter and resolve to restaurantId
+ * Get tenantId from query parameter or X-Restaurant-Id header and resolve to restaurantId
+ * Supports both query parameter (tenantId) and header (X-Restaurant-Id) for flexible authentication
  */
-async function getTenantAndRestaurantId(url: URL): Promise<{ 
+async function getTenantAndRestaurantId(url: URL, req?: Request): Promise<{ 
   tenantId: string; 
   restaurantId: string; 
   restaurantName: string;
 } | null> {
-  const tenantId = url.searchParams.get('tenantId');
+  // Try query parameter first
+  let tenantId = url.searchParams.get('tenantId');
+  
+  // Fallback to X-Restaurant-Id header if query parameter is not provided
+  if (!tenantId && req) {
+    tenantId = req.headers.get('x-restaurant-id') || null;
+  }
+  
   if (!tenantId) {
     return null;
   }
@@ -59,7 +67,7 @@ export async function handleDashboardOverview(req: Request, url: URL): Promise<R
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -268,7 +276,7 @@ async function handleOrdersStats(req: Request, url: URL): Promise<Response | nul
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -322,7 +330,7 @@ async function handleOrdersList(req: Request, url: URL): Promise<Response | null
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -436,7 +444,7 @@ async function handleOrderStatusUpdate(req: Request, url: URL): Promise<Response
   const orderId = match[1];
   const body: any = await req.json();
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -493,7 +501,7 @@ async function handleConversationsList(req: Request, url: URL): Promise<Response
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -539,7 +547,7 @@ async function handleConversationMessages(req: Request, url: URL): Promise<Respo
   }
 
   const conversationId = match[1];
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -647,7 +655,7 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
   const conversationId = match[1]!;
   const body: any = await req.json();
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -862,7 +870,7 @@ async function handleSendMediaMessage(req: Request, url: URL): Promise<Response 
     ? (rawMediaType as 'image' | 'video' | 'audio' | 'document')
     : undefined;
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -1032,7 +1040,7 @@ async function handleToggleBot(req: Request, url: URL): Promise<Response | null>
   const conversationId = match[1];
   const body: any = await req.json();
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }

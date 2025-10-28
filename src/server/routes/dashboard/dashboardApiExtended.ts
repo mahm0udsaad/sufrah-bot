@@ -18,14 +18,22 @@ import {
 } from '../../../services/notificationFeed';
 
 /**
- * Get tenantId from query parameter and resolve to restaurantId
+ * Get tenantId from query parameter or X-Restaurant-Id header and resolve to restaurantId
+ * Supports both query parameter (tenantId) and header (X-Restaurant-Id) for flexible authentication
  */
-async function getTenantAndRestaurantId(url: URL): Promise<{ 
+async function getTenantAndRestaurantId(url: URL, req?: Request): Promise<{ 
   tenantId: string; 
   restaurantId: string; 
   restaurantName: string;
 } | null> {
-  const tenantId = url.searchParams.get('tenantId');
+  // Try query parameter first
+  let tenantId = url.searchParams.get('tenantId');
+  
+  // Fallback to X-Restaurant-Id header if query parameter is not provided
+  if (!tenantId && req) {
+    tenantId = req.headers.get('x-restaurant-id') || null;
+  }
+  
   if (!tenantId) {
     return null;
   }
@@ -51,7 +59,7 @@ export async function handleTemplatesList(req: Request, url: URL): Promise<Respo
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -127,7 +135,7 @@ export async function handleTemplateCreate(req: Request, url: URL): Promise<Resp
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -186,7 +194,7 @@ export async function handleTemplateUpdate(req: Request, url: URL): Promise<Resp
   const templateId = match[1];
   const body = await req.json();
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -247,7 +255,7 @@ export async function handleTemplateDelete(req: Request, url: URL): Promise<Resp
 
   const templateId = match[1];
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -289,7 +297,7 @@ export async function handleRatings(req: Request, url: URL): Promise<Response | 
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -368,7 +376,7 @@ export async function handleRatingsTimeline(req: Request, url: URL): Promise<Res
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -423,7 +431,7 @@ export async function handleRatingsReviews(req: Request, url: URL): Promise<Resp
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -500,7 +508,7 @@ export async function handleLogsWebhook(req: Request, url: URL): Promise<Respons
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -554,7 +562,7 @@ export async function handleLogsOutbound(req: Request, url: URL): Promise<Respon
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -613,7 +621,7 @@ export async function handleCatalog(req: Request, url: URL): Promise<Response | 
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -645,7 +653,7 @@ export async function handleRestaurantProfile(req: Request, url: URL): Promise<R
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -702,7 +710,7 @@ export async function handleRestaurantSettings(req: Request, url: URL): Promise<
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -766,7 +774,7 @@ export async function handleUsage(req: Request, url: URL): Promise<Response | nu
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -876,7 +884,7 @@ export async function handleBotManagement(req: Request, url: URL): Promise<Respo
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -927,7 +935,7 @@ export async function handleBotToggle(req: Request, url: URL): Promise<Response 
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -975,7 +983,7 @@ export async function handleBotLimits(req: Request, url: URL): Promise<Response 
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -1030,7 +1038,7 @@ export async function handleNotifications(req: Request, url: URL): Promise<Respo
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
@@ -1070,7 +1078,7 @@ export async function handleNotificationsRead(req: Request, url: URL): Promise<R
     return null;
   }
 
-  const tenant = await getTenantAndRestaurantId(url);
+  const tenant = await getTenantAndRestaurantId(url, req);
   if (!tenant) {
     return jsonResponse({ success: false, error: 'tenantId query parameter is required' }, 400);
   }
