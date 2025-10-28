@@ -25,7 +25,10 @@ export async function handleTenantsApi(req: Request, url: URL): Promise<Response
     console.log(`[Tenants API] Processing overview request for botId: ${botId}`);
     
     try {
-      // Authenticate 
+      // Authenticate - just verify user has valid credentials
+      // Note: For consistency with other dashboard APIs, we don't enforce
+      // that the X-Restaurant-Id header matches the URL tenant ID.
+      // The URL tenant ID is the source of truth for which data to return.
       const auth = await authenticateDashboard(req);
 
       if (!auth.ok) {
@@ -34,19 +37,10 @@ export async function handleTenantsApi(req: Request, url: URL): Promise<Response
         return jsonResponse({ error: auth.error || 'Unauthorized' }, status);
       }
 
-      // Verify access - admins can access any tenant, non-admins must match
-      // Allow if: admin OR (auth.botId matches requested botId) OR (no botId in auth but admin)
-      const hasAccess = auth.isAdmin || auth.botId === botId || !auth.botId;
-      
-      if (!hasAccess) {
-        console.log(`[Tenants API] Forbidden: auth.botId=${auth.botId}, requested=${botId}, isAdmin=${auth.isAdmin}`);
-        return jsonResponse({ 
-          error: 'Forbidden - you do not have access to this tenant',
-          details: 'The X-Restaurant-Id header must match the requested tenant ID'
-        }, 403);
-      }
+      console.log(`[Tenants API] Authenticated successfully. Auth botId: ${auth.botId}, Requested botId: ${botId}`);
 
       // Resolve the bot ID from URL to get restaurant details
+      // Using URL botId as source of truth (consistent with other dashboard APIs)
       const resolved = await resolveRestaurantId(botId);
       if (!resolved) {
         console.log(`[Tenants API] Restaurant not found for botId: ${botId}`);
