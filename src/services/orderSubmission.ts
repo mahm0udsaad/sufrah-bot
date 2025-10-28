@@ -18,6 +18,7 @@ import { logWebhookRequest } from '../db/webhookService';
 import redis from '../redis/client';
 import { getCachedContentSid } from '../workflows/cache';
 import { createRatingListContent } from '../workflows/ratingTemplates';
+import { notifyOrderCreated } from './notificationFeed';
 import { notifyRestaurantOrder } from './whatsapp';
 import { eventBus } from '../redis/eventBus';
 
@@ -530,6 +531,21 @@ export async function submitExternalOrder(
       restaurantId: createdOrder.restaurantId,
       sufrahOrderNumber: orderNumber,
     });
+
+    try {
+      await notifyOrderCreated({
+        restaurantId: restaurant.id,
+        orderId: createdOrder.id,
+        orderReference: createdOrder.orderReference,
+        totalCents: createdOrder.totalCents,
+        currency: createdOrder.currency,
+        conversationId: conversation.id,
+        customerName,
+        customerPhone: normalizePhoneNumber(sanitizedCustomerPhone),
+      });
+    } catch (error) {
+      console.error('❌ [Notifications] Failed to record order-created notification:', error);
+    }
 
     // Create OrderItem records for each item in the order
     let orderItems: any[] = [];

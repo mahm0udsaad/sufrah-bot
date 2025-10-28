@@ -4,6 +4,7 @@ export type BroadcastEvent =
   | { type: 'message.created'; data: Record<string, any> }
   | { type: 'conversation.updated'; data: Record<string, any> }
   | { type: 'order.updated'; data: Record<string, any> }
+  | { type: 'notification.created'; data: Record<string, any> }
   | { type: 'bot.status'; data: Record<string, any> };
 
 const websocketClients = new Set<Bun.ServerWebSocket<any>>();

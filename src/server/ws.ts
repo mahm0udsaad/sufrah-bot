@@ -53,6 +53,13 @@ async function setupRedisEventBusListeners() {
       console.log(`🛒 Redis order event received for restaurant ${restaurant.id}:`, data.type);
       broadcast({ type: 'order.updated', data });
     });
+
+    await eventBus.subscribeToNotifications(restaurant.id, (data) => {
+      console.log(`🔔 Redis notification event received for restaurant ${restaurant.id}`);
+      if (data?.notification) {
+        broadcast({ type: 'notification.created', data: data.notification });
+      }
+    });
   }
 
   console.log(`✅ Redis → WebSocket bridge active for ${restaurants.length} restaurants`);
@@ -84,4 +91,3 @@ export const wsHandlers = {
     if (text === 'ping') ws.send('pong');
   },
 };
-

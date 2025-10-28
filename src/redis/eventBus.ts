@@ -86,6 +86,14 @@ class RedisEventBus {
   }
 
   /**
+   * Publish a notification event to a restaurant channel
+   */
+  async publishNotification(restaurantId: string, notification: any): Promise<void> {
+    const channel = `ws:restaurant:${restaurantId}:notifications`;
+    await this.publishWithTimeout(channel, notification);
+  }
+
+  /**
    * Publish a conversation event to a restaurant channel
    */
   async publishConversation(restaurantId: string, conversation: any): Promise<void> {
@@ -124,6 +132,21 @@ class RedisEventBus {
   }
 
   /**
+   * Subscribe to a restaurant's notifications channel
+   */
+  async subscribeToNotifications(
+    restaurantId: string,
+    callback: (data: any) => void
+  ): Promise<void> {
+    const channel = `ws:restaurant:${restaurantId}:notifications`;
+    if (!this.handlers.has(channel)) {
+      this.handlers.set(channel, new Set());
+      await this.subscriber.subscribe(channel);
+    }
+    this.handlers.get(channel)!.add(callback);
+  }
+
+  /**
    * Subscribe to a restaurant's conversations channel
    */
   async subscribeToConversations(
@@ -141,7 +164,10 @@ class RedisEventBus {
   /**
    * Unsubscribe from a channel
    */
-  async unsubscribe(restaurantId: string, type: 'messages' | 'orders' | 'conversations'): Promise<void> {
+  async unsubscribe(
+    restaurantId: string,
+    type: 'messages' | 'orders' | 'conversations' | 'notifications'
+  ): Promise<void> {
     const channel = `ws:restaurant:${restaurantId}:${type}`;
     await this.subscriber.unsubscribe(channel);
     this.handlers.delete(channel);

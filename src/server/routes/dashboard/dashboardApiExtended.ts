@@ -12,6 +12,10 @@ import {
 } from '../../../services/i18n';
 import { resolveRestaurantId } from '../../../utils/restaurantResolver';
 import { checkQuota } from '../../../services/quotaEnforcement';
+import {
+  listNotificationsForRestaurant,
+  markNotificationsRead,
+} from '../../../services/notificationFeed';
 
 /**
  * Get tenantId from query parameter and resolve to restaurantId
@@ -1032,11 +1036,26 @@ export async function handleNotifications(req: Request, url: URL): Promise<Respo
   }
 
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '20', 10), 100);
+  const cursor = url.searchParams.get('cursor') || undefined;
 
-  // Mock notifications data
+  const { notifications, nextCursor, unreadCount } = await listNotificationsForRestaurant(
+    tenant.restaurantId,
+    limit,
+    cursor
+  );
+
   const data = {
-    notifications: [],
-    unreadCount: 0,
+    notifications: notifications.map((notification) => ({
+      id: notification.id,
+      type: notification.type,
+      title: notification.title,
+      body: notification.body,
+      createdAt: notification.createdAt,
+      status: notification.status,
+      metadata: notification.metadata,
+    })),
+    unreadCount,
+    nextCursor,
   };
 
   return jsonResponse({ success: true, data });
@@ -1062,9 +1081,12 @@ export async function handleNotificationsRead(req: Request, url: URL): Promise<R
     return jsonResponse({ success: false, error: 'notificationIds array is required' }, 400);
   }
 
-  // Here you would mark the notifications as read in the database
+  const updatedCount = await markNotificationsRead(
+    tenant.restaurantId,
+    body.notificationIds.filter((id: unknown): id is string => typeof id === 'string')
+  );
 
-  return jsonResponse({ success: true, message: 'Notifications marked as read' });
+  return jsonResponse({ success: true, data: { updatedCount } });
 }
 
 /**
@@ -1139,4 +1161,3 @@ export async function handleDashboardApiExtended(req: Request, url: URL): Promis
 
   return null;
 }
-

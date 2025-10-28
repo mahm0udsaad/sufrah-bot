@@ -4,6 +4,7 @@
  * Enforces idempotency, rate limiting, and signature validation
  */
 
+import { prisma } from '../db/client';
 import { findRestaurantByWhatsAppNumber } from '../db/restaurantService';
 import { findOrCreateConversation, updateConversation } from '../db/conversationService';
 import { createInboundMessage, messageExists } from '../db/messageService';
@@ -14,6 +15,7 @@ import { checkRestaurantRateLimit, checkCustomerRateLimit } from '../utils/rateL
 import { validateTwilioSignature, extractTwilioSignature } from '../utils/twilioSignature';
 import { normalizePhoneNumber } from '../utils/phone';
 import { consumeCachedMessageForPhone, sendNotification } from '../services/whatsapp';
+import { notifyConversationStarted } from '../services/notificationFeed';
 import { TwilioClientManager } from '../twilio/clientManager';
 import { processMessage } from '../handlers/processMessage';
 
@@ -347,6 +349,15 @@ export async function processInboundWebhook(
     console.log(`💬 [Step 5] Finding or creating conversation...`);
     
     // Step 5: Find or create conversation
+    const existingConversation = await prisma.conversation.findUnique({
+      where: {
+        restaurantId_customerWa: {
+          restaurantId: restaurantProfileId,
+          customerWa: customerPhone,
+        },
+      },
+    });
+
     const conversation = await findOrCreateConversation(
       restaurantProfileId,
       customerPhone,
@@ -354,6 +365,19 @@ export async function processInboundWebhook(
     );
 
     console.log(`✅ [Step 5] Conversation: ${conversation.id}`);
+
+    if (!existingConversation) {
+      try {
+        await notifyConversationStarted({
+          restaurantId: restaurantProfileId,
+          conversationId: conversation.id,
+          customerName: ProfileName,
+          customerPhone,
+        });
+      } catch (error) {
+        console.error('❌ [Notifications] Failed to record conversation-start notification:', error);
+      }
+    }
 
     console.log(`📝 [Step 6] Determining message type and content...`);
     

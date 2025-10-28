@@ -127,6 +127,22 @@ model MessageCache {
   @@map("MessageCache")
 }
 
+model Notification {
+  id            String             @id @default(cuid())
+  restaurantId  String             @map("restaurant_id")
+  type          NotificationType
+  title         String
+  body          String
+  metadata      Json?              @map("metadata")
+  status        NotificationStatus @default(unread)
+  createdAt     DateTime           @default(now()) @map("created_at")
+  readAt        DateTime?          @map("read_at")
+  restaurant    Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, createdAt])
+  @@map("Notification")
+}
+
 model Order {
   id              String       @id @default(cuid())
   restaurantId    String       @map("restaurant_id")
@@ -187,6 +203,7 @@ model Restaurant {
   monthlyUsage       MonthlyUsage[]
   usageAdjustments   UsageAdjustment[]
   conversationSessions ConversationSession[]
+  notifications      Notification[]
 
   @@index([userId])
   @@map("RestaurantProfile")
@@ -382,4 +399,15 @@ enum OrderStatus {
   OUT_FOR_DELIVERY
   DELIVERED
   CANCELLED
+}
+
+enum NotificationType {
+  welcome_broadcast
+  order_created
+  conversation_started
+}
+
+enum NotificationStatus {
+  unread
+  read
 }

@@ -1,6 +1,7 @@
 import { jsonResponse } from '../http';
 import { prisma } from '../../db/client';
 import { standardizeWhatsappNumber } from '../../utils/phone';
+import { sendWelcomeBroadcast } from '../../services/notificationFeed';
 
 // Using string statuses to avoid enum import coupling
 type RestaurantStatus = 'PENDING_APPROVAL' | 'ACTIVE' | 'REJECTED';
@@ -202,6 +203,21 @@ async function handleRestaurantBotAdmin(req: Request, url: URL): Promise<Respons
       });
 
       console.log(`✅ Created new bot: ${bot.name} (${bot.whatsappNumber})`);
+
+      if (bot.restaurantId) {
+        try {
+          const result = await sendWelcomeBroadcast({ restaurantId: bot.restaurantId });
+          console.log(
+            `📣 Sent welcome broadcast for restaurant ${bot.restaurantId}: delivered=${result.delivered}, skipped=${result.skipped}, failed=${result.failed}`
+          );
+        } catch (error) {
+          console.error(
+            `❌ Failed to send welcome broadcast for restaurant ${bot.restaurantId}:`,
+            error
+          );
+        }
+      }
+
       return jsonResponse(bot, 201);
     } catch (error) {
       console.error('❌ Failed to create bot:', error);
