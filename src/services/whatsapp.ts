@@ -578,6 +578,11 @@ export async function notifyRestaurantOrder(
       },
     });
 
+    if (!messageRecord) {
+      console.error('❌ [WhatsAppNotify] Failed to create or retrieve message record');
+      throw new Error('Failed to store message');
+    }
+
     await updateConversation(conversation.id, {
       lastMessageAt: new Date(),
     });
@@ -833,6 +838,11 @@ export async function sendWhatsAppMessage(
         }),
       },
     });
+
+    if (!messageRecord) {
+      console.error('❌ [WhatsAppSend] Failed to create or retrieve message record');
+      throw new Error('Failed to store message');
+    }
 
     await updateConversation(conversation.id, {
       lastMessageAt: new Date(),

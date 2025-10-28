@@ -53,7 +53,7 @@ export async function createInboundMessage(data: {
 }
 
 /**
- * Create an outbound message
+ * Create an outbound message with idempotency
  */
 export async function createOutboundMessage(data: {
   conversationId: string;
@@ -65,7 +65,17 @@ export async function createOutboundMessage(data: {
   content: string;
   mediaUrl?: string;
   metadata?: any;
-}): Promise<Message> {
+}): Promise<Message | null> {
+  // Idempotency check - if waSid exists, check if message already exists
+  if (data.waSid && (await messageExists(data.waSid))) {
+    console.log(`⚠️ Duplicate outbound message detected: ${data.waSid}`);
+    // Return the existing message instead of throwing an error
+    const existingMessage = await prisma.message.findUnique({
+      where: { waSid: data.waSid },
+    });
+    return existingMessage;
+  }
+
   const { fromPhone, toPhone, metadata, mediaUrl, ...rest } = data;
   const mergedMeta = {
     ...(metadata ?? {}),
@@ -76,14 +86,28 @@ export async function createOutboundMessage(data: {
     Object.entries(mergedMeta).filter(([, value]) => value !== undefined && value !== null)
   );
 
-  return prisma.message.create({
-    data: {
-      ...rest,
-      mediaUrl: mediaUrl ?? null,
-      metadata: Object.keys(cleanedMeta).length ? cleanedMeta : undefined,
-      direction: 'OUT',
-    },
-  });
+  try {
+    return await prisma.message.create({
+      data: {
+        ...rest,
+        mediaUrl: mediaUrl ?? null,
+        metadata: Object.keys(cleanedMeta).length ? cleanedMeta : undefined,
+        direction: 'OUT',
+      },
+    });
+  } catch (error: any) {
+    // If we get a unique constraint violation on waSid, it means the message was created
+    // by another process between our check and this create attempt. Fetch and return it.
+    if (error.code === 'P2002' && error.meta?.target?.includes('wa_sid') && data.waSid) {
+      console.log(`⚠️ Duplicate outbound message created by another process: ${data.waSid}`);
+      const existingMessage = await prisma.message.findUnique({
+        where: { waSid: data.waSid },
+      });
+      return existingMessage;
+    }
+    // For other errors, rethrow
+    throw error;
+  }
 }
 
 /**

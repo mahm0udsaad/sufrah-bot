@@ -695,6 +695,11 @@ async function handleSendMessage(req: Request, url: URL): Promise<Response | nul
       },
     });
 
+    if (!storedMessage) {
+      console.error('❌ [DashboardSend] Failed to create or retrieve message record');
+      return jsonResponse({ success: false, error: 'Failed to store message' }, 500);
+    }
+
     // Update conversation state
     const now = new Date();
     const updatedConversation = await prisma.conversation.update({
@@ -851,6 +856,11 @@ async function handleSendMediaMessage(req: Request, url: URL): Promise<Response 
         channel: sendResult.message.channel ?? 'whatsapp',
       },
     });
+
+    if (!storedMessage) {
+      console.error('❌ [DashboardSendMedia] Failed to create or retrieve message record');
+      return jsonResponse({ success: false, error: 'Failed to store message' }, 500);
+    }
 
     const now = new Date();
     const updatedConversation = await prisma.conversation.update({
