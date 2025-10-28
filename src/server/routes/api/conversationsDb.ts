@@ -153,9 +153,10 @@ export async function handleConversationsDbApi(req: Request, url: URL): Promise<
       const limit = parseInt(url.searchParams.get('limit') || '100', 10);
       const offset = parseInt(url.searchParams.get('offset') || '0', 10);
 
-      const messages = await listMessages(conversationId, { limit, offset });
+      const messages = await listMessages(conversationId, { limit, offset, order: 'desc' });
+      const ordered = messages.slice().reverse();
 
-      const response: MessageApiResponse[] = messages.map((msg) => ({
+      const response: MessageApiResponse[] = ordered.map((msg) => ({
         id: msg.id,
         conversationId: msg.conversationId,
         restaurantId: msg.restaurantId,
@@ -238,4 +239,3 @@ export async function handleConversationsDbApi(req: Request, url: URL): Promise<
 
   return null;
 }
-

@@ -108,16 +108,17 @@ export async function listMessages(
     limit?: number;
     offset?: number;
     before?: Date;
+    order?: 'asc' | 'desc';
   } = {}
 ): Promise<Message[]> {
-  const { limit = 100, offset = 0, before } = options;
+  const { limit = 100, offset = 0, before, order = 'asc' } = options;
 
   return prisma.message.findMany({
     where: {
       conversationId,
       ...(before && { createdAt: { lt: before } }),
     },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { createdAt: order },
     take: limit,
     skip: offset,
   });

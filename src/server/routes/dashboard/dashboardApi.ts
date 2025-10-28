@@ -565,12 +565,14 @@ async function handleConversationMessages(req: Request, url: URL): Promise<Respo
     where: {
       conversationId,
     },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { createdAt: 'desc' },
     take: limit,
   });
 
+  const orderedMessages = messages.slice().reverse();
+
   const data = {
-    messages: messages.map((msg) => {
+    messages: orderedMessages.map((msg) => {
       const metadata = msg.metadata as any;
       return {
         id: msg.id,
