@@ -4,6 +4,8 @@ const DEFAULT_HEADERS: Record<string, string> = {
   Accept: 'application/json',
 };
 
+const MERCHANT_PROFILE_CACHE_TTL_MS = Number(process.env.SUFRAH_MERCHANT_CACHE_TTL_MS || 300_000);
+
 async function request<T>(path: string): Promise<T> {
   if (!SUFRAH_API_KEY) {
     throw new Error('Sufrah API key is not configured');
@@ -71,6 +73,23 @@ export interface SufrahProduct {
   isAvailableToOrderFromCar?: boolean | null;
   isPriceIncludingAddons?: boolean | null;
 }
+
+export interface SufrahMerchantProfile {
+  id: string;
+  email?: string | null;
+  phoneNumber?: string | null;
+  name?: string | null;
+  appsLink?: string | null;
+  address?: string | null;
+  sloganPhoto?: string | null;
+  isActive?: boolean | null;
+  subscriptionStatus?: string | null;
+}
+
+const merchantProfileCache = new Map<
+  string,
+  { data: SufrahMerchantProfile; expiresAt: number }
+>();
 
 export interface SufrahBranch {
   id: string;
@@ -157,4 +176,43 @@ export async function checkDeliveryAvailability(
   console.log(`[Sufrah API] Delivery availability type:`, typeof available);
   console.log(`[Sufrah API] Delivery is ${available === true ? 'AVAILABLE' : 'NOT AVAILABLE'}`);
   return available;
+}
+
+export async function fetchMerchantProfile(
+  merchantId: string
+): Promise<SufrahMerchantProfile | null> {
+  if (!merchantId) {
+    console.error('[Sufrah API] fetchMerchantProfile called with empty merchantId');
+    return null;
+  }
+
+  const cached = merchantProfileCache.get(merchantId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
+  try {
+    const data = await request<SufrahMerchantProfile>(`merchants/${merchantId}`);
+    const normalized: SufrahMerchantProfile = {
+      id: data.id,
+      email: data.email ?? null,
+      phoneNumber: data.phoneNumber ?? null,
+      name: data.name ?? null,
+      appsLink: data.appsLink ?? null,
+      address: data.address ?? null,
+      sloganPhoto: data.sloganPhoto ?? null,
+      isActive: data.isActive ?? null,
+      subscriptionStatus: data.subscriptionStatus ?? null,
+    };
+
+    merchantProfileCache.set(merchantId, {
+      data: normalized,
+      expiresAt: Date.now() + MERCHANT_PROFILE_CACHE_TTL_MS,
+    });
+
+    return normalized;
+  } catch (error) {
+    console.error(`❌ [Sufrah API] Failed to fetch merchant profile for ${merchantId}:`, error);
+    return null;
+  }
 }

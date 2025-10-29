@@ -47,6 +47,7 @@ export interface ConversationSession {
   currency?: string;
   customerName?: string;
   customerPhone?: string;
+  customerPhoneRaw?: string;
   lastOrderNumber?: number;
 }
 

@@ -46,6 +46,10 @@ export interface OrderState {
     name?: string | null;
     whatsappNumber: string;
     externalMerchantId: string;
+    appsLink?: string | null;
+    sloganPhoto?: string | null;
+    merchantEmail?: string | null;
+    merchantPhone?: string | null;
   };
   activeCategoryId?: string;
   customerName?: string;

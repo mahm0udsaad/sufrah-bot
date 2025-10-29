@@ -11,7 +11,7 @@ import {
   type SessionOrderItem,
 } from '../state/session';
 import { calculateCartTotal, getCart, getOrderState } from '../state/orders';
-import { normalizePhoneNumber, standardizeWhatsappNumber } from '../utils/phone';
+import { normalizePhoneNumber, standardizeWhatsappNumber, formatPhoneForSufrah } from '../utils/phone';
 import { sendTextMessage, sendContentMessage } from '../twilio/messaging';
 import { SUFRAH_API_BASE, SUFRAH_API_KEY, TWILIO_WHATSAPP_FROM, TWILIO_CONTENT_AUTH } from '../config';
 import { logWebhookRequest } from '../db/webhookService';
@@ -331,11 +331,16 @@ export async function submitExternalOrder(
           return { total: roundToTwo(total), currency: currency || 'SAR' };
         })();
 
+  const rawCustomerPhoneInput =
+    session?.customerPhoneRaw || session?.customerPhone || customerPhone;
+
   const sanitizedCustomerPhone =
-    standardizeWhatsappNumber(session?.customerPhone || customerPhone) || `+${normalizedConversationId}`;
+    standardizeWhatsappNumber(rawCustomerPhoneInput || customerPhone) || `+${normalizedConversationId}`;
   if (!sanitizedCustomerPhone) {
     throw new OrderSubmissionError('CUSTOMER_INFO_MISSING', 'Customer phone number is required to submit the order.');
   }
+
+  const customerPhoneForSufrah = formatPhoneForSufrah(rawCustomerPhoneInput, sanitizedCustomerPhone);
 
   const customerName = session?.customerName || state.customerName || 'ضيف سُفرة';
 
@@ -346,7 +351,7 @@ export async function submitExternalOrder(
     paymentMethod,
     items: sessionItems.map(toPayloadItem),
     customerName,
-    customerPhone: sanitizedCustomerPhone,
+    customerPhone: customerPhoneForSufrah,
   };
 
   // Add latitude and longitude for delivery orders

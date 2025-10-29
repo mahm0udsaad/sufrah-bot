@@ -7,6 +7,10 @@ export interface SufrahRestaurant {
   name?: string | null;
   whatsappNumber: string;
   externalMerchantId: string;
+  appsLink?: string | null;
+  sloganPhoto?: string | null;
+  merchantEmail?: string | null;
+  merchantPhone?: string | null;
 }
 
 type PrismaRestaurantModel = {

@@ -49,7 +49,7 @@ import { getCachedContentSid, seedCacheFromKey } from '../workflows/cache';
 import { recordInboundMessage } from '../workflows/messages';
 import { registerTemplateTextForSid } from '../workflows/templateText';
 import { submitExternalOrder, OrderSubmissionError } from '../services/orderSubmission';
-import { checkDeliveryAvailability } from '../services/sufrahApi';
+import { checkDeliveryAvailability, fetchMerchantProfile } from '../services/sufrahApi';
 import { TwilioClientManager } from '../twilio/clientManager';
 import {
   addItemToCart,
@@ -180,6 +180,7 @@ async function syncSessionWithCart(
     currency: currency || DEFAULT_CURRENCY,
     customerName: state.customerName,
     customerPhone: standardizeWhatsappNumber(phoneNumber) || phoneNumber,
+    customerPhoneRaw: overrides.customerPhoneRaw ?? phoneNumber,
     branchId: state.branchId,
     branchName: state.branchName,
     ...overrides,
@@ -201,6 +202,8 @@ export async function sendWelcomeTemplate(
 ) {
   const safeRestaurantName = restaurant?.name?.trim() || process.env.RESTAURANT_NAME || 'مطعم XYZ';
   const safeGuestName = profileName || 'ضيفنا الكريم';
+  const appsLink = restaurant?.appsLink?.trim();
+  const usingPreconfiguredTemplate = !!process.env.CONTENT_SID_WELCOME;
   
   try {
     if (!restaurant) throw new Error("Restaurant context is required");
@@ -217,6 +220,20 @@ export async function sendWelcomeTemplate(
     let welcomeApprovalRequested = !!welcomeContentSid;
 
     if (!welcomeContentSid) {
+      const quickReplyActions: Array<{ title: string; id?: string; type?: string; url?: string }> = [
+        { title: "🆕 طلب جديد", id: "new_order", type: "QUICK_REPLY" },
+        { title: "🚚 تتبع الطلب", id: "track_order", type: "QUICK_REPLY" },
+        { title: "☎️ تواصل مع الدعم", id: "contact_support", type: "QUICK_REPLY" },
+      ];
+
+      if (appsLink) {
+        quickReplyActions.push({
+          title: '🌐 اطلب عبر التطبيق',
+          type: 'URL',
+          url: appsLink,
+        });
+      }
+
       const created = await twilioClient.content.v1.contents.create({
         friendly_name: `welcome_qr_${Date.now()}`,
         language: "ar",
@@ -226,12 +243,10 @@ export async function sendWelcomeTemplate(
         },
         types: {
           "twilio/quick-reply": {
-            body: `مرحباً {{2}} في {{1}}!\nكيف يمكننا خدمتك اليوم؟`,
-            actions: [
-              { title: "🆕 طلب جديد", id: "new_order", type: "QUICK_REPLY" },
-              { title: "🚚 تتبع الطلب", id: "track_order", type: "QUICK_REPLY" },
-              { title: "☎️ تواصل مع الدعم", id: "contact_support", type: "QUICK_REPLY" }
-            ]
+            body: appsLink
+              ? `مرحباً {{2}} في {{1}}!\nيمكنك الطلب من هنا أو عبر تطبيقنا الرسمي.`
+              : `مرحباً {{2}} في {{1}}!\nكيف يمكننا خدمتك اليوم؟`,
+            actions: quickReplyActions,
           },
           "twilio/text": {
             body: "مرحباً {{2}} في {{1}}!"
@@ -280,6 +295,15 @@ export async function sendWelcomeTemplate(
       logLabel: 'Welcome template sent'
     });
 
+    if (appsLink && usingPreconfiguredTemplate) {
+      await sendTextMessage(
+        twilioClient,
+        restaurant.whatsappNumber || process.env.TWILIO_WHATSAPP_FROM || '',
+        to,
+        `🌐 يمكنك الطلب عبر تطبيقنا: ${appsLink}`
+      );
+    }
+
     // After normal welcome, send Ocean promo with app links
     if (isOceanRestaurant) {
       await sendOceanPromo(twilioClient, restaurant.whatsappNumber || process.env.TWILIO_WHATSAPP_FROM || '', to);
@@ -288,9 +312,12 @@ export async function sendWelcomeTemplate(
     console.error("❌ Error in sendWelcomeTemplate:", error);
 
     // fallback: plain text
-    const fallback = `🌟 أهلاً بك يا ${safeGuestName} في ${safeRestaurantName}! 🌟
-
-🍽️ لبدء طلب جديد اكتب "طلب جديد" أو اضغط على زر 🆕.`;
+    const fallbackLines = [
+      `🌟 أهلاً بك يا ${safeGuestName} في ${safeRestaurantName}! 🌟`,
+      '🍽️ لبدء طلب جديد اكتب "طلب جديد" أو اضغط على زر 🆕.',
+      appsLink ? `🌐 يمكنك أيضاً الطلب عبر تطبيقنا: ${appsLink}` : '',
+    ].filter(Boolean);
+    const fallback = fallbackLines.join('\n\n');
     if (restaurant) {
       const twilioClientManager = new TwilioClientManager();
       const twilioClient = await twilioClientManager.getClient(restaurant.id);
@@ -677,6 +704,37 @@ export async function sendBranchSelection(
   }
 }
 
+async function enrichRestaurantWithMerchantProfile(
+  restaurant: SufrahRestaurant | null
+): Promise<SufrahRestaurant | null> {
+  if (!restaurant || !restaurant.externalMerchantId) {
+    return restaurant;
+  }
+
+  const merchantId = restaurant.externalMerchantId;
+  if (!merchantId || merchantId === restaurant.id) {
+    return restaurant;
+  }
+
+  try {
+    const profile = await fetchMerchantProfile(merchantId);
+    if (!profile) {
+      return restaurant;
+    }
+
+    return {
+      ...restaurant,
+      appsLink: profile.appsLink ?? restaurant.appsLink,
+      sloganPhoto: profile.sloganPhoto ?? restaurant.sloganPhoto,
+      merchantEmail: profile.email ?? restaurant.merchantEmail,
+      merchantPhone: profile.phoneNumber ?? restaurant.merchantPhone,
+    };
+  } catch (error) {
+    console.error('⚠️ Failed to enrich restaurant with merchant profile:', error);
+    return restaurant;
+  }
+}
+
 export async function resolveRestaurantContext(
   phoneNumber: string,
   recipientPhone?: string
@@ -721,8 +779,9 @@ export async function resolveRestaurantContext(
           externalMerchantId: restaurantProfile.externalMerchantId,
         };
 
-        updateOrderState(phoneNumber, { restaurant: restaurantContext });
-        return restaurantContext;
+        const enrichedRestaurant = await enrichRestaurantWithMerchantProfile(restaurantContext);
+        updateOrderState(phoneNumber, { restaurant: enrichedRestaurant });
+        return enrichedRestaurant;
       }
 
       // Fallback: No externalMerchantId, create synthetic context
@@ -734,8 +793,9 @@ export async function resolveRestaurantContext(
         externalMerchantId: bot.restaurantId, // Use restaurantId as synthetic merchantId
       };
 
-      updateOrderState(phoneNumber, { restaurant: syntheticRestaurant });
-      return syntheticRestaurant;
+      const enrichedSynthetic = await enrichRestaurantWithMerchantProfile(syntheticRestaurant);
+      updateOrderState(phoneNumber, { restaurant: enrichedSynthetic });
+      return enrichedSynthetic;
     }
 
     // Step 3: Legacy fallback - direct WhatsApp number lookup (for old setups)
@@ -746,8 +806,9 @@ export async function resolveRestaurantContext(
         whatsappNumber: standardizeWhatsappNumber(restaurant.whatsappNumber),
       };
 
-      updateOrderState(phoneNumber, { restaurant: normalizedRestaurant });
-      return normalizedRestaurant;
+      const enrichedRestaurant = await enrichRestaurantWithMerchantProfile(normalizedRestaurant);
+      updateOrderState(phoneNumber, { restaurant: enrichedRestaurant });
+      return enrichedRestaurant;
     }
 
     return null;
@@ -832,6 +893,7 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
 
     const sessionBaseUpdate: Partial<ConversationSession> = {
       customerPhone: standardizeWhatsappNumber(phoneNumber) || phoneNumber,
+      customerPhoneRaw: phoneNumber,
     };
     if (restaurantContext.externalMerchantId) {
       sessionBaseUpdate.merchantId = restaurantContext.externalMerchantId;

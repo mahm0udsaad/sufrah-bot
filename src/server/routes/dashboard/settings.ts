@@ -6,6 +6,8 @@
 import { jsonResponse } from '../../http';
 import { prisma } from '../../../db/client';
 import { getLocaleFromRequest, createLocalizedResponse } from '../../../services/i18n';
+import { fetchMerchantProfile } from '../../../services/sufrahApi';
+import { standardizeWhatsappNumber } from '../../../utils/phone';
 import { authenticateDashboard } from '../../../utils/dashboardAuth';
 
 
@@ -49,6 +51,15 @@ export async function handleSettingsApi(req: Request, url: URL): Promise<Respons
       return jsonResponse({ error: 'Restaurant not found' }, 404);
     }
 
+    let merchantProfile = null;
+    if (restaurant.externalMerchantId) {
+      merchantProfile = await fetchMerchantProfile(restaurant.externalMerchantId);
+    }
+
+    const sloganPhoto = merchantProfile?.sloganPhoto ?? null;
+    const appsLink = merchantProfile?.appsLink ?? null;
+    const logoUrl = restaurant.logoUrl || sloganPhoto || null;
+
     const profile = {
       id: restaurant.id,
       name: restaurant.name,
@@ -56,7 +67,9 @@ export async function handleSettingsApi(req: Request, url: URL): Promise<Respons
       address: restaurant.address,
       phone: restaurant.phone,
       whatsappNumber: restaurant.whatsappNumber,
-      logoUrl: restaurant.logoUrl,
+      logoUrl,
+      sloganPhoto,
+      appsLink,
       isActive: restaurant.isActive,
       status: restaurant.status,
       owner: {
@@ -88,7 +101,13 @@ export async function handleSettingsApi(req: Request, url: URL): Promise<Respons
     if (body.name) updateData.name = body.name;
     if (body.description !== undefined) updateData.description = body.description;
     if (body.address !== undefined) updateData.address = body.address;
-    if (body.phone !== undefined) updateData.phone = body.phone;
+    if (body.phone !== undefined) {
+      const normalizedPhone =
+        typeof body.phone === 'string'
+          ? standardizeWhatsappNumber(body.phone) || body.phone
+          : body.phone;
+      updateData.phone = normalizedPhone;
+    }
     if (body.logoUrl !== undefined) updateData.logoUrl = body.logoUrl;
 
     if (Object.keys(updateData).length === 0) {
@@ -161,4 +180,3 @@ export async function handleSettingsApi(req: Request, url: URL): Promise<Respons
 
   return null;
 }
-
