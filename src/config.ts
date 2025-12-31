@@ -52,7 +52,17 @@ export const WHATSAPP_SEND_TOKEN = process.env.WHATSAPP_SEND_TOKEN || '';
 
 // Sufrah external API
 export const SUFRAH_API_BASE = process.env.SUFRAH_API_BASE || 'https://api.sufrah.sa/api/v1/external';
-export const SUFRAH_API_KEY = `ApiToken ${process.env.SUFRAH_API_KEY}` || '';
+
+function normalizeSufrahApiKey(raw?: string): string {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  return trimmed.toLowerCase().startsWith('apitoken ')
+    ? trimmed
+    : `ApiToken ${trimmed}`;
+}
+
+export const SUFRAH_API_KEY = normalizeSufrahApiKey(process.env.SUFRAH_API_KEY);
 export const SUFRAH_CACHE_TTL_MS = Number(process.env.SUFRAH_CACHE_TTL_MS || 180_000);
 // Auth
 export const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';

@@ -1,7 +1,7 @@
 import { SUFRAH_API_BASE, SUFRAH_API_KEY } from '../config';
 
 const DEFAULT_HEADERS: Record<string, string> = {
-  Accept: 'application/json',
+  Accept: 'application/json, text/plain;q=0.9',
 };
 
 const MERCHANT_PROFILE_CACHE_TTL_MS = Number(process.env.SUFRAH_MERCHANT_CACHE_TTL_MS || 300_000);
@@ -72,6 +72,31 @@ export interface SufrahProduct {
   isAvailableToLocalDemand?: boolean | null;
   isAvailableToOrderFromCar?: boolean | null;
   isPriceIncludingAddons?: boolean | null;
+  productAddons?: SufrahProductAddon[] | null;
+  options?: SufrahProductOption[] | null;
+}
+
+export interface SufrahProductAddon {
+  id: string;
+  addonId?: string;
+  addonNameAr?: string | null;
+  addonNameEn?: string | null;
+  addonImageUrl?: string | null;
+  price?: number | null;
+  isWithout?: boolean | null;
+  maxQuantity?: number | null;
+  minQuantity?: number | null;
+}
+
+export interface SufrahProductOption {
+  nameAr?: string | null;
+  nameEn?: string | null;
+  subOptions?: Array<{
+    id: string;
+    nameAr?: string | null;
+    nameEn?: string | null;
+    price?: number | null;
+  }>;
 }
 
 export interface SufrahMerchantProfile {
@@ -135,10 +160,14 @@ export async function fetchMerchantCategories(
 }
 
 export async function fetchCategoryProducts(
-  categoryId: string
+  categoryId: string,
+  branchId: string
 ): Promise<SufrahProduct[]> {
   if (!categoryId) throw new Error('Missing category id');
-  const data = await request<SufrahProduct[] | SufrahProduct>(`categories/${categoryId}/products`);
+  if (!branchId) throw new Error('Missing branch id');
+  const data = await request<SufrahProduct[] | SufrahProduct>(
+    `categories/${categoryId}/products?branchId=${encodeURIComponent(branchId)}`
+  );
   return Array.isArray(data) ? data : [data];
 }
 
@@ -156,11 +185,18 @@ export async function fetchMerchantBranches(
   return result;
 }
 
+export interface DeliveryAvailabilityResult {
+  isAvailable: boolean;
+  branchId?: string | null;
+  nearestBranchId?: string | null;
+  raw?: unknown;
+}
+
 export async function checkDeliveryAvailability(
   merchantId: string,
   latitude: string | number,
   longitude: string | number
-): Promise<boolean> {
+): Promise<DeliveryAvailabilityResult> {
   if (!merchantId) {
     console.error('[Sufrah API] checkDeliveryAvailability called with empty merchantId');
     throw new Error('Missing merchant id');
@@ -171,11 +207,34 @@ export async function checkDeliveryAvailability(
   }
   
   console.log(`[Sufrah API] Checking delivery availability for merchant: ${merchantId}, lat: ${latitude}, lng: ${longitude}`);
-  const available = await request<boolean>(`addresses/check-availability?MerchantId=${merchantId}&Lat=${latitude}&Lng=${longitude}`);
-  console.log(`[Sufrah API] Delivery availability response:`, available);
-  console.log(`[Sufrah API] Delivery availability type:`, typeof available);
-  console.log(`[Sufrah API] Delivery is ${available === true ? 'AVAILABLE' : 'NOT AVAILABLE'}`);
-  return available;
+  const response = await request<DeliveryAvailabilityResult | boolean | Record<string, unknown>>(
+    `addresses/check-availability?MerchantId=${merchantId}&Lat=${latitude}&Lng=${longitude}`
+  );
+
+  console.log(`[Sufrah API] Delivery availability response:`, response);
+
+  if (typeof response === 'boolean') {
+    return { isAvailable: response, raw: response };
+  }
+
+  if (response && typeof response === 'object') {
+    const isAvailable =
+      response.isAvailable === true ||
+      response.available === true ||
+      response === true;
+    const branchId =
+      (response as any).branchId ||
+      (response as any).nearestBranchId ||
+      null;
+    return {
+      isAvailable: isAvailable || !!branchId,
+      branchId: typeof branchId === 'string' ? branchId : null,
+      nearestBranchId: typeof branchId === 'string' ? branchId : null,
+      raw: response,
+    };
+  }
+
+  return { isAvailable: false, raw: response };
 }
 
 export async function fetchMerchantProfile(

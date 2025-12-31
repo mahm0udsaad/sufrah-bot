@@ -949,8 +949,24 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       updateOrderState(phoneNumber, { activeCategoryId: category.id });
 
       let items: MenuItem[] = [];
+      const resolvedBranchId =
+        currentState.branchId ||
+        session?.selectedBranch?.branchId ||
+        session?.branchId;
+
+      if (!resolvedBranchId) {
+        if (currentState.type === 'delivery') {
+          await sendBotText('نحتاج إلى تأكيد أقرب فرع لخدمتك. يرجى مشاركة موقعك مرة أخرى لإكمال الطلب.');
+          updateOrderState(phoneNumber, { awaitingLocation: true });
+        } else {
+          await sendBotText('يرجى اختيار الفرع أولاً قبل تصفح الأصناف.');
+          await sendBranchSelection(twilioClient, fromNumber, phoneNumber, merchantId);
+        }
+        return;
+      }
+
       try {
-        items = await getCategoryItems(merchantId, category.id);
+        items = await getCategoryItems(merchantId, category.id, resolvedBranchId);
       } catch (error) {
         console.error('❌ Failed to fetch category items from Sufrah API:', error);
         await sendBotText('⚠️ تعذر جلب الأصناف في الوقت الحالي، يرجى المحاولة لاحقاً.');
@@ -1316,14 +1332,10 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
 
       try {
         console.log(`🔍 [Location Check] About to check delivery availability...`);
-        const isAvailable = await checkDeliveryAvailability(merchantId, latitude, longitude);
-        console.log(`🔍 [Location Check] Received response:`, isAvailable);
-        console.log(`🔍 [Location Check] Response type:`, typeof isAvailable);
-        console.log(`🔍 [Location Check] Response value (strict):`, isAvailable === true ? 'TRUE' : isAvailable === false ? 'FALSE' : 'OTHER');
-        
-        // Handle both boolean and string responses
-        const isDeliveryAvailable = isAvailable === true || isAvailable === 'true';
-        console.log(`🔍 [Location Check] Final decision: ${isDeliveryAvailable ? 'PROCEED' : 'REJECT'}`);
+        const availability = await checkDeliveryAvailability(merchantId, latitude, longitude);
+        const nearestBranchId = availability?.branchId || availability?.nearestBranchId || undefined;
+        const isDeliveryAvailable = availability?.isAvailable === true || !!nearestBranchId;
+        console.log(`🔍 [Location Check] Final decision: ${isDeliveryAvailable ? 'PROCEED' : 'REJECT'}, branchId=${nearestBranchId || 'none'}`);
         
         if (!isDeliveryAvailable) {
           // Area not covered for delivery
@@ -1339,6 +1351,20 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         
         // Area is covered, proceed normally
         console.log(`✅ [Location Check] Delivery IS available. Proceeding with order for location: ${address}`);
+
+        // Persist the resolved branch for downstream menu and order calls
+        if (nearestBranchId) {
+          updateOrderState(phoneNumber, {
+            branchId: nearestBranchId,
+          });
+          await updateConversationSession(conversationId, {
+            selectedBranch: {
+              branchId: nearestBranchId,
+              raw: availability?.raw,
+            },
+            branchId: nearestBranchId,
+          });
+        }
       } catch (error) {
         console.error('❌ [Location Check] Error checking delivery availability:', error);
         console.error('❌ [Location Check] Error details:', error instanceof Error ? error.message : String(error));
@@ -1357,6 +1383,7 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         latitude: latitude || undefined,
         longitude: longitude || undefined,
         awaitingLocation: false,
+        branchId: getOrderState(phoneNumber).branchId || currentState.branchId,
       });
 
       await sendBotText(`✅ شكراً لك! تم استلام موقعك: ${address}.\nتصفّح القائمة لمتابعة الطلب.`);
@@ -1694,7 +1721,11 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
     // Step 2.6: If user selected an item → add to cart, send image, then quick-replies
     if (trimmedBody.startsWith('item_')) {
       const itemId = trimmedBody.replace(/^item_/, '');
-      const picked = await getItemById(merchantId, itemId);
+      const branchId =
+        currentState.branchId ||
+        session?.selectedBranch?.branchId ||
+        session?.branchId;
+      const picked = branchId ? await getItemById(merchantId, itemId, branchId) : undefined;
       if (!picked) {
         await sendBotText("عذراً، لم يتم العثور على هذا الطبق. اكتب 'طلب جديد' للبدء من جديد.");
         return;
@@ -1705,7 +1736,13 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
 
     if (!currentState.pendingItem && trimmedBody) {
       const activeCategoryId = currentState.activeCategoryId;
-      const matchedItem = await findItemByText(merchantId, activeCategoryId, trimmedBody);
+      const branchId =
+        currentState.branchId ||
+        session?.selectedBranch?.branchId ||
+        session?.branchId;
+      const matchedItem = branchId
+        ? await findItemByText(merchantId, activeCategoryId, trimmedBody, branchId)
+        : undefined;
       if (matchedItem) {
         await handleItemSelection(matchedItem);
         return;

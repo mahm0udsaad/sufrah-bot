@@ -80,6 +80,7 @@ export async function handleCatalogApi(req: Request, url: URL): Promise<Response
 
     const locale = getLocaleFromRequest(req);
     const categoryId = url.searchParams.get('categoryId');
+    const branchId = url.searchParams.get('branchId');
 
     const restaurant = await getRestaurantById(auth.restaurantId);
     if (!restaurant) {
@@ -90,12 +91,16 @@ export async function handleCatalogApi(req: Request, url: URL): Promise<Response
       return jsonResponse({ error: 'Restaurant not linked to Sufrah merchant' }, 400);
     }
 
+    if (!branchId) {
+      return jsonResponse({ error: 'branchId is required to fetch items' }, 400);
+    }
+
     try {
       let allItems: any[] = [];
 
       if (categoryId) {
         // Fetch items for specific category
-        allItems = await fetchCategoryProducts(categoryId);
+        allItems = await fetchCategoryProducts(categoryId, branchId);
       } else {
         // Fetch all categories first, then get items from all of them
         const categories = await fetchMerchantCategories(restaurant.externalMerchantId);
@@ -103,7 +108,7 @@ export async function handleCatalogApi(req: Request, url: URL): Promise<Response
         // Fetch items from all categories in parallel
         const itemsPromises = categories.map(async (cat: any) => {
           try {
-            const items = await fetchCategoryProducts(cat.id);
+            const items = await fetchCategoryProducts(cat.id, branchId);
             return items.map((item: any) => ({
               ...item,
               categoryId: cat.id,

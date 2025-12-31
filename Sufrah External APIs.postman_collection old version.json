@@ -1,0 +1,724 @@
+{
+	"info": {
+		"_postman_id": "c64948c6-63f4-427d-a740-e0c3a6651fe1",
+		"name": "Sufrah External APIs",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "36745596"
+	},
+	"item": [
+		{
+			"name": "api",
+			"item": [
+				{
+					"name": "v1",
+					"item": [
+						{
+							"name": "external",
+							"item": [
+								{
+									"name": "merchants",
+									"item": [
+										{
+											"name": "{id}",
+											"item": [
+												{
+													"name": "branches",
+													"item": [
+														{
+															"name": "/api/v1/external/merchants/:id/branches",
+															"request": {
+																"method": "GET",
+																"header": [
+																	{
+																		"key": "Accept",
+																		"value": "text/plain"
+																	}
+																],
+																"url": {
+																	"raw": "{{baseUrl}}/api/v1/external/merchants/:id/branches",
+																	"host": [
+																		"{{baseUrl}}"
+																	],
+																	"path": [
+																		"api",
+																		"v1",
+																		"external",
+																		"merchants",
+																		":id",
+																		"branches"
+																	],
+																	"variable": [
+																		{
+																			"key": "id",
+																			"value": "84af124c-a10a-9a36-57d9-a37fb7ed9c75",
+																			"description": "(Required) "
+																		}
+																	]
+																}
+															},
+															"response": [
+																{
+																	"name": "OK",
+																	"originalRequest": {
+																		"method": "GET",
+																		"header": [
+																			{
+																				"key": "Accept",
+																				"value": "text/plain"
+																			},
+																			{
+																				"key": "Authorization",
+																				"value": "<API Key>",
+																				"description": "Added as a part of security scheme: apikey"
+																			}
+																		],
+																		"url": {
+																			"raw": "{{baseUrl}}/api/v1/external/merchants/:id/branches",
+																			"host": [
+																				"{{baseUrl}}"
+																			],
+																			"path": [
+																				"api",
+																				"v1",
+																				"external",
+																				"merchants",
+																				":id",
+																				"branches"
+																			],
+																			"variable": [
+																				{
+																					"key": "id"
+																				}
+																			]
+																		}
+																	},
+																	"status": "OK",
+																	"code": 200,
+																	"_postman_previewlanguage": "json",
+																	"header": [
+																		{
+																			"key": "Content-Type",
+																			"value": "application/json"
+																		}
+																	],
+																	"cookie": [],
+																	"body": "{\n  \"id\": \"e7c61844-8c25-ef27-df34-493f829cc518\",\n  \"nameAr\": \"string\",\n  \"nameEn\": \"string\",\n  \"city\": {\n    \"id\": \"5cba7089-9164-2cf2-58cc-2875a15bf84e\",\n    \"nameAr\": \"string\",\n    \"nameEn\": \"string\",\n    \"areas\": [\n      {\n        \"id\": \"f8f8c7c5-3a2a-3089-8307-5c2b16038250\",\n        \"nameAr\": \"string\",\n        \"nameEn\": \"string\",\n        \"centerLongitude\": 5037.207336892575,\n        \"centerLatitude\": 1018.4206985968402,\n        \"radius\": 6849.492847787497\n      },\n      {\n        \"id\": \"8e39310b-e99b-7a85-e316-1590a2e316c8\",\n        \"nameAr\": \"string\",\n        \"nameEn\": \"string\",\n        \"centerLongitude\": 7658.457602096449,\n        \"centerLatitude\": 9176.867075764882,\n        \"radius\": 191.81651495809638\n      }\n    ]\n  },\n  \"phoneNumber\": \"string\",\n  \"latitude\": \"string\",\n  \"longitude\": \"string\",\n  \"imageUrl\": \"string\"\n}"
+																}
+															]
+														}
+													]
+												},
+												{
+													"name": "categories",
+													"item": [
+														{
+															"name": "/api/v1/external/merchants/:id/categories",
+															"request": {
+																"method": "GET",
+																"header": [
+																	{
+																		"key": "Accept",
+																		"value": "text/plain"
+																	}
+																],
+																"url": {
+																	"raw": "{{baseUrl}}/api/v1/external/merchants/:id/categories",
+																	"host": [
+																		"{{baseUrl}}"
+																	],
+																	"path": [
+																		"api",
+																		"v1",
+																		"external",
+																		"merchants",
+																		":id",
+																		"categories"
+																	],
+																	"variable": [
+																		{
+																			"key": "id",
+																			"value": "84af124c-a10a-9a36-57d9-a37fb7ed9c75",
+																			"description": "(Required) "
+																		}
+																	]
+																}
+															},
+															"response": [
+																{
+																	"name": "OK",
+																	"originalRequest": {
+																		"method": "GET",
+																		"header": [
+																			{
+																				"key": "Accept",
+																				"value": "text/plain"
+																			},
+																			{
+																				"key": "Authorization",
+																				"value": "<API Key>",
+																				"description": "Added as a part of security scheme: apikey"
+																			}
+																		],
+																		"url": {
+																			"raw": "{{baseUrl}}/api/v1/external/merchants/:id/categories",
+																			"host": [
+																				"{{baseUrl}}"
+																			],
+																			"path": [
+																				"api",
+																				"v1",
+																				"external",
+																				"merchants",
+																				":id",
+																				"categories"
+																			],
+																			"variable": [
+																				{
+																					"key": "id"
+																				}
+																			]
+																		}
+																	},
+																	"status": "OK",
+																	"code": 200,
+																	"_postman_previewlanguage": "json",
+																	"header": [
+																		{
+																			"key": "Content-Type",
+																			"value": "application/json"
+																		}
+																	],
+																	"cookie": [],
+																	"body": "{\n  \"id\": \"ed557f87-6f4f-617b-2a62-d4db3d5285f9\",\n  \"nameAr\": \"string\",\n  \"nameEn\": \"string\",\n  \"imageUrl\": \"string\"\n}"
+																}
+															]
+														}
+													]
+												},
+												{
+													"name": "products",
+													"item": [
+														{
+															"name": "/api/v1/external/merchants/:id/products",
+															"request": {
+																"method": "GET",
+																"header": [
+																	{
+																		"key": "Accept",
+																		"value": "text/plain"
+																	}
+																],
+																"url": {
+																	"raw": "{{baseUrl}}/api/v1/external/merchants/:id/products",
+																	"host": [
+																		"{{baseUrl}}"
+																	],
+																	"path": [
+																		"api",
+																		"v1",
+																		"external",
+																		"merchants",
+																		":id",
+																		"products"
+																	],
+																	"variable": [
+																		{
+																			"key": "id",
+																			"value": "84af124c-a10a-9a36-57d9-a37fb7ed9c75",
+																			"description": "(Required) "
+																		}
+																	]
+																}
+															},
+															"response": [
+																{
+																	"name": "OK",
+																	"originalRequest": {
+																		"method": "GET",
+																		"header": [
+																			{
+																				"key": "Accept",
+																				"value": "text/plain"
+																			},
+																			{
+																				"key": "Authorization",
+																				"value": "<API Key>",
+																				"description": "Added as a part of security scheme: apikey"
+																			}
+																		],
+																		"url": {
+																			"raw": "{{baseUrl}}/api/v1/external/merchants/:id/products",
+																			"host": [
+																				"{{baseUrl}}"
+																			],
+																			"path": [
+																				"api",
+																				"v1",
+																				"external",
+																				"merchants",
+																				":id",
+																				"products"
+																			],
+																			"variable": [
+																				{
+																					"key": "id"
+																				}
+																			]
+																		}
+																	},
+																	"status": "OK",
+																	"code": 200,
+																	"_postman_previewlanguage": "json",
+																	"header": [
+																		{
+																			"key": "Content-Type",
+																			"value": "application/json"
+																		}
+																	],
+																	"cookie": [],
+																	"body": "{\n  \"id\": \"d7c2bc2d-9780-ff22-aab1-e4138c8d5389\",\n  \"avatar\": \"string\",\n  \"nameAr\": \"string\",\n  \"nameEn\": \"string\",\n  \"descriptionAr\": \"string\",\n  \"descriptionEn\": \"string\",\n  \"price\": 9726.317634623436,\n  \"priceAfter\": 4331.207072968486,\n  \"images\": [\n    \"string\",\n    \"string\"\n  ],\n  \"isAvailableToDelivery\": true,\n  \"isAvailableToReceipt\": false,\n  \"isAvailableToLocalDemand\": false,\n  \"isAvailableToOrderFromCar\": true,\n  \"isPriceIncludingAddons\": true\n}"
+																}
+															]
+														}
+													]
+												},
+												{
+													"name": "/api/v1/external/merchants/:id",
+													"request": {
+														"method": "GET",
+														"header": [
+															{
+																"key": "Accept",
+																"value": "text/plain"
+															}
+														],
+														"url": {
+															"raw": "{{baseUrl}}/api/v1/external/merchants/:id",
+															"host": [
+																"{{baseUrl}}"
+															],
+															"path": [
+																"api",
+																"v1",
+																"external",
+																"merchants",
+																":id"
+															],
+															"variable": [
+																{
+																	"key": "id",
+																	"value": "84af124c-a10a-9a36-57d9-a37fb7ed9c75",
+																	"description": "(Required) "
+																}
+															]
+														}
+													},
+													"response": [
+														{
+															"name": "OK",
+															"originalRequest": {
+																"method": "GET",
+																"header": [
+																	{
+																		"key": "Accept",
+																		"value": "text/plain"
+																	},
+																	{
+																		"key": "Authorization",
+																		"value": "<API Key>",
+																		"description": "Added as a part of security scheme: apikey"
+																	}
+																],
+																"url": {
+																	"raw": "{{baseUrl}}/api/v1/external/merchants/:id",
+																	"host": [
+																		"{{baseUrl}}"
+																	],
+																	"path": [
+																		"api",
+																		"v1",
+																		"external",
+																		"merchants",
+																		":id"
+																	],
+																	"variable": [
+																		{
+																			"key": "id"
+																		}
+																	]
+																}
+															},
+															"status": "OK",
+															"code": 200,
+															"_postman_previewlanguage": "json",
+															"header": [
+																{
+																	"key": "Content-Type",
+																	"value": "application/json"
+																}
+															],
+															"cookie": [],
+															"body": "{\n  \"id\": \"57032cf1-5f07-a366-7273-ed3c84c465fd\",\n  \"email\": \"string\",\n  \"phoneNumber\": \"string\",\n  \"name\": \"string\",\n  \"address\": \"string\",\n  \"sloganPhoto\": \"string\",\n  \"isActive\": true,\n  \"purchaseTaxNumber\": \"string\",\n  \"taxCertificateUpload\": \"string\",\n  \"subscriptionStatus\": \"string\",\n  \"bundleName\": \"string\",\n  \"startAt\": \"1979-11-07T15:11:57.735Z\",\n  \"expirationAt\": \"2014-01-22T08:29:56.402Z\",\n  \"period\": 4044,\n  \"price\": 6150.995169695956,\n  \"numberOfBranches\": 8664,\n  \"hasMobileApp\": true,\n  \"paymentInfo\": {\n    \"apiKey\": \"string\",\n    \"secretKey\": \"string\",\n    \"publicKey\": \"string\",\n    \"status\": \"Inactive\"\n  }\n}"
+														}
+													]
+												}
+											]
+										},
+										{
+											"name": "get-by-property",
+											"item": [
+												{
+													"name": "/api/v1/external/merchants/get-by-property",
+													"request": {
+														"method": "GET",
+														"header": [
+															{
+																"key": "Accept",
+																"value": "text/plain"
+															}
+														],
+														"url": {
+															"raw": "{{baseUrl}}/api/v1/external/merchants/get-by-property?EmailOrPhone=string",
+															"host": [
+																"{{baseUrl}}"
+															],
+															"path": [
+																"api",
+																"v1",
+																"external",
+																"merchants",
+																"get-by-property"
+															],
+															"query": [
+																{
+																	"key": "EmailOrPhone",
+																	"value": "string"
+																}
+															]
+														}
+													},
+													"response": [
+														{
+															"name": "OK",
+															"originalRequest": {
+																"method": "GET",
+																"header": [
+																	{
+																		"key": "Accept",
+																		"value": "text/plain"
+																	},
+																	{
+																		"key": "Authorization",
+																		"value": "<API Key>",
+																		"description": "Added as a part of security scheme: apikey"
+																	}
+																],
+																"url": {
+																	"raw": "{{baseUrl}}/api/v1/external/merchants/get-by-property?EmailOrPhone=string",
+																	"host": [
+																		"{{baseUrl}}"
+																	],
+																	"path": [
+																		"api",
+																		"v1",
+																		"external",
+																		"merchants",
+																		"get-by-property"
+																	],
+																	"query": [
+																		{
+																			"key": "EmailOrPhone",
+																			"value": "string"
+																		}
+																	]
+																}
+															},
+															"status": "OK",
+															"code": 200,
+															"_postman_previewlanguage": "json",
+															"header": [
+																{
+																	"key": "Content-Type",
+																	"value": "application/json"
+																}
+															],
+															"cookie": [],
+															"body": "{\n  \"id\": \"57032cf1-5f07-a366-7273-ed3c84c465fd\",\n  \"email\": \"string\",\n  \"phoneNumber\": \"string\",\n  \"name\": \"string\",\n  \"address\": \"string\",\n  \"sloganPhoto\": \"string\",\n  \"isActive\": true,\n  \"purchaseTaxNumber\": \"string\",\n  \"taxCertificateUpload\": \"string\",\n  \"subscriptionStatus\": \"string\",\n  \"bundleName\": \"string\",\n  \"startAt\": \"1979-11-07T15:11:57.735Z\",\n  \"expirationAt\": \"2014-01-22T08:29:56.402Z\",\n  \"period\": 4044,\n  \"price\": 6150.995169695956,\n  \"numberOfBranches\": 8664,\n  \"hasMobileApp\": true,\n  \"paymentInfo\": {\n    \"apiKey\": \"string\",\n    \"secretKey\": \"string\",\n    \"publicKey\": \"string\",\n    \"status\": \"Inactive\"\n  }\n}"
+														}
+													]
+												}
+											]
+										},
+										{
+											"name": "/api/v1/external/merchants",
+											"request": {
+												"method": "GET",
+												"header": [
+													{
+														"key": "Accept",
+														"value": "text/plain"
+													}
+												],
+												"url": {
+													"raw": "{{baseUrl}}/api/v1/external/merchants?SearchTerm=string&IsActive=true&SubscriptionStatus=Expired&Sorting=string&SkipCount=1923022187&MaxResultCount=378311829",
+													"host": [
+														"{{baseUrl}}"
+													],
+													"path": [
+														"api",
+														"v1",
+														"external",
+														"merchants"
+													],
+													"query": [
+														{
+															"key": "SearchTerm",
+															"value": "string"
+														},
+														{
+															"key": "IsActive",
+															"value": "true"
+														},
+														{
+															"key": "SubscriptionStatus",
+															"value": "Expired"
+														},
+														{
+															"key": "Sorting",
+															"value": "string"
+														},
+														{
+															"key": "SkipCount",
+															"value": "1923022187"
+														},
+														{
+															"key": "MaxResultCount",
+															"value": "378311829"
+														}
+													]
+												}
+											},
+											"response": [
+												{
+													"name": "OK",
+													"originalRequest": {
+														"method": "GET",
+														"header": [
+															{
+																"key": "Accept",
+																"value": "text/plain"
+															},
+															{
+																"key": "Authorization",
+																"value": "<API Key>",
+																"description": "Added as a part of security scheme: apikey"
+															}
+														],
+														"url": {
+															"raw": "{{baseUrl}}/api/v1/external/merchants?SearchTerm=string&IsActive=true&SubscriptionStatus=Expired&Sorting=string&SkipCount=1923022187&MaxResultCount=378311829",
+															"host": [
+																"{{baseUrl}}"
+															],
+															"path": [
+																"api",
+																"v1",
+																"external",
+																"merchants"
+															],
+															"query": [
+																{
+																	"key": "SearchTerm",
+																	"value": "string"
+																},
+																{
+																	"key": "IsActive",
+																	"value": "true"
+																},
+																{
+																	"key": "SubscriptionStatus",
+																	"value": "Expired"
+																},
+																{
+																	"key": "Sorting",
+																	"value": "string"
+																},
+																{
+																	"key": "SkipCount",
+																	"value": "1923022187"
+																},
+																{
+																	"key": "MaxResultCount",
+																	"value": "378311829"
+																}
+															]
+														}
+													},
+													"status": "OK",
+													"code": 200,
+													"_postman_previewlanguage": "json",
+													"header": [
+														{
+															"key": "Content-Type",
+															"value": "application/json"
+														}
+													],
+													"cookie": [],
+													"body": "{\n  \"id\": \"bd596f7d-0888-458f-0dba-1e8cbd89749f\",\n  \"email\": \"string\",\n  \"phoneNumber\": \"string\",\n  \"name\": \"string\",\n  \"address\": \"string\",\n  \"sloganPhoto\": \"string\",\n  \"isActive\": true,\n  \"subscriptionStatus\": \"string\"\n}"
+												}
+											]
+										}
+									]
+								},
+								{
+									"name": "categories",
+									"item": [
+										{
+											"name": "{id}",
+											"item": [
+												{
+													"name": "products",
+													"item": [
+														{
+															"name": "/api/v1/external/categories/:id/products",
+															"request": {
+																"method": "GET",
+																"header": [
+																	{
+																		"key": "Accept",
+																		"value": "text/plain"
+																	}
+																],
+																"url": {
+																	"raw": "{{baseUrl}}/api/v1/external/categories/:id/products",
+																	"host": [
+																		"{{baseUrl}}"
+																	],
+																	"path": [
+																		"api",
+																		"v1",
+																		"external",
+																		"categories",
+																		":id",
+																		"products"
+																	],
+																	"variable": [
+																		{
+																			"key": "id",
+																			"value": "84af124c-a10a-9a36-57d9-a37fb7ed9c75",
+																			"description": "(Required) "
+																		}
+																	]
+																}
+															},
+															"response": [
+																{
+																	"name": "OK",
+																	"originalRequest": {
+																		"method": "GET",
+																		"header": [
+																			{
+																				"key": "Accept",
+																				"value": "text/plain"
+																			},
+																			{
+																				"key": "Authorization",
+																				"value": "<API Key>",
+																				"description": "Added as a part of security scheme: apikey"
+																			}
+																		],
+																		"url": {
+																			"raw": "{{baseUrl}}/api/v1/external/categories/:id/products",
+																			"host": [
+																				"{{baseUrl}}"
+																			],
+																			"path": [
+																				"api",
+																				"v1",
+																				"external",
+																				"categories",
+																				":id",
+																				"products"
+																			],
+																			"variable": [
+																				{
+																					"key": "id"
+																				}
+																			]
+																		}
+																	},
+																	"status": "OK",
+																	"code": 200,
+																	"_postman_previewlanguage": "json",
+																	"header": [
+																		{
+																			"key": "Content-Type",
+																			"value": "application/json"
+																		}
+																	],
+																	"cookie": [],
+																	"body": "{\n  \"id\": \"d7c2bc2d-9780-ff22-aab1-e4138c8d5389\",\n  \"avatar\": \"string\",\n  \"nameAr\": \"string\",\n  \"nameEn\": \"string\",\n  \"descriptionAr\": \"string\",\n  \"descriptionEn\": \"string\",\n  \"price\": 9726.317634623436,\n  \"priceAfter\": 4331.207072968486,\n  \"images\": [\n    \"string\",\n    \"string\"\n  ],\n  \"isAvailableToDelivery\": true,\n  \"isAvailableToReceipt\": false,\n  \"isAvailableToLocalDemand\": false,\n  \"isAvailableToOrderFromCar\": true,\n  \"isPriceIncludingAddons\": true\n}"
+																}
+															]
+														}
+													]
+												}
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			]
+		}
+	],
+	"auth": {
+		"type": "apikey",
+		"apikey": [
+			{
+				"key": "value",
+				"value": "{token}",
+				"type": "string"
+			},
+			{
+				"key": "key",
+				"value": "ApiToken",
+				"type": "string"
+			},
+			{
+				"key": "in",
+				"value": "header",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "https://api.dev.sufrah.sa"
+		}
+	]
+}

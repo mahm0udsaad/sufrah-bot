@@ -43,8 +43,8 @@ interface CacheEntry<T> {
 interface MenuCacheEntry {
   categories?: CacheEntry<MenuCategory[]>;
   branches?: CacheEntry<BranchOption[]>;
-  products: Map<string, CacheEntry<MenuItem[]>>;
-  productIndex: Map<string, MenuItem>;
+  products: Map<string, CacheEntry<MenuItem[]>>; // key: `${branchId}::${categoryId}`
+  productIndex: Map<string, Map<string, MenuItem>>; // branchKey -> item map
 }
 
 const merchantCache = new Map<string, MenuCacheEntry>();
@@ -250,19 +250,25 @@ export async function findCategoryByText(
 
 export async function getCategoryItems(
   merchantId: string,
-  categoryId: string
+  categoryId: string,
+  branchId: string
 ): Promise<MenuItem[]> {
   const cache = getCache(merchantId);
-  const cached = cache.products.get(categoryId);
+  const branchKey = branchId || 'default';
+  const cacheKey = `${branchKey}::${categoryId}`;
+  const cached = cache.products.get(cacheKey);
   if (!cached || isExpired(cached)) {
-    const raw = await fetchCategoryProducts(categoryId);
+    const raw = await fetchCategoryProducts(categoryId, branchId);
     const mapped = raw
       .map((product) => resolveMenuItem(product, categoryId))
       .filter((product): product is MenuItem => product !== null);
 
     const entry = toCacheEntry(mapped);
-    cache.products.set(categoryId, entry);
-    mapped.forEach((item) => cache.productIndex.set(item.id, item));
+    cache.products.set(cacheKey, entry);
+
+    const branchIndex = cache.productIndex.get(branchKey) ?? new Map<string, MenuItem>();
+    mapped.forEach((item) => branchIndex.set(item.id, item));
+    cache.productIndex.set(branchKey, branchIndex);
     return mapped;
   }
 
@@ -271,17 +277,19 @@ export async function getCategoryItems(
 
 export async function getItemById(
   merchantId: string,
-  itemId: string
+  itemId: string,
+  branchId: string
 ): Promise<MenuItem | undefined> {
   const cache = getCache(merchantId);
-  const indexed = cache.productIndex.get(itemId);
-  if (indexed) {
-    return indexed;
+  const branchKey = branchId || 'default';
+  const branchIndex = cache.productIndex.get(branchKey);
+  if (branchIndex?.has(itemId)) {
+    return branchIndex.get(itemId);
   }
 
   const categories = await getMenuCategories(merchantId);
   for (const category of categories) {
-    const items = await getCategoryItems(merchantId, category.id);
+    const items = await getCategoryItems(merchantId, category.id, branchId);
     const match = items.find((item) => item.id === itemId);
     if (match) {
       return match;
@@ -293,7 +301,8 @@ export async function getItemById(
 export async function findItemByText(
   merchantId: string,
   categoryId: string | undefined,
-  input: string
+  input: string,
+  branchId: string
 ): Promise<MenuItem | undefined> {
   const normalized = normalizeText(input);
   if (!normalized) {
@@ -302,13 +311,13 @@ export async function findItemByText(
 
   if (normalized.startsWith('item_')) {
     const id = normalized.replace(/^item_/, '');
-    return getItemById(merchantId, id);
+    return getItemById(merchantId, id, branchId);
   }
 
   const numeric = Number.parseInt(normalized, 10);
   if (!Number.isNaN(numeric) && numeric >= 1) {
     if (categoryId) {
-      const items = await getCategoryItems(merchantId, categoryId);
+      const items = await getCategoryItems(merchantId, categoryId, branchId);
       if (numeric <= items.length) {
         return items[numeric - 1];
       }
@@ -316,14 +325,16 @@ export async function findItemByText(
   }
 
   if (categoryId) {
-    const items = await getCategoryItems(merchantId, categoryId);
+    const items = await getCategoryItems(merchantId, categoryId, branchId);
     return items.find((item) => normalizeText(item.item).includes(normalized));
   }
 
   const cache = getCache(merchantId);
-  for (const item of cache.productIndex.values()) {
-    if (normalizeText(item.item).includes(normalized)) {
-      return item;
+  for (const branchIndex of cache.productIndex.values()) {
+    for (const item of branchIndex.values()) {
+      if (normalizeText(item.item).includes(normalized)) {
+        return item;
+      }
     }
   }
 

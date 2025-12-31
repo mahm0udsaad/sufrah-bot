@@ -317,6 +317,9 @@ export async function submitExternalOrder(
   if ((orderType === 'Takeaway' || orderType === 'FromCar' || orderType === 'DineIn') && !branchId) {
     throw new OrderSubmissionError('NO_BRANCH_SELECTED', 'Branch selection is required for pickup orders.');
   }
+  if (orderType === 'Delivery' && !branchId) {
+    throw new OrderSubmissionError('NO_BRANCH_SELECTED', 'Branch resolution is required for delivery orders (please share location again).');
+  }
 
   const paymentMethod = session?.paymentMethod || toExternalPaymentMethod(state.paymentMethod);
   if (!paymentMethod) {
