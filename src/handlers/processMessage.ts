@@ -1460,9 +1460,7 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         branchId: getOrderState(phoneNumber).branchId || currentState.branchId,
       });
 
-      await sendBotText(`✅ شكراً لك! تم استلام موقعك: ${address}.`);
-
-      // Send post-location choice (continue chat or open app)
+      // Send post-location choice (continue chat or open app) - skip location confirmation message
       try {
         const appLink = restaurantContext?.appsLink || 'https://falafeltime.sufrah.sa/apps';
         const choiceSid = await getCachedContentSid(
@@ -1474,7 +1472,8 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         });
       } catch (error) {
         console.error('❌ Error sending post-location choice:', error);
-        // Fallback: continue with menu if quick reply fails
+        // Fallback: send location confirmation and continue with menu if quick reply fails
+        await sendBotText(`✅ شكراً لك! تم استلام موقعك: ${address}.`);
         const updatedState = getOrderState(phoneNumber);
         if (updatedState.type === 'delivery') {
           await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
