@@ -22,6 +22,7 @@ export interface MenuItem {
   item: string;
   description?: string;
   price: number;
+  priceAfter?: number;
   currency?: string;
   image?: string;
   categoryId: string;
@@ -144,6 +145,9 @@ function resolveMenuItem(product: SufrahProduct, categoryId: string): MenuItem |
   }
 
   const price = parsePrice(product.price);
+  const priceAfter = product.priceAfter !== null && product.priceAfter !== undefined 
+    ? parsePrice(product.priceAfter) 
+    : undefined;
   const currency = (product.currency ?? 'ر.س') || 'ر.س';
   const description = resolveDescription(product);
   const image = resolveImage(product);
@@ -153,6 +157,7 @@ function resolveMenuItem(product: SufrahProduct, categoryId: string): MenuItem |
     item,
     description,
     price,
+    priceAfter,
     currency,
     image,
     categoryId,

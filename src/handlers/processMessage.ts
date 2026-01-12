@@ -39,6 +39,7 @@ import {
   createItemsListPicker,
   createPostItemChoiceQuickReply,
   createLocationRequestQuickReply,
+  createPostLocationChoiceQuickReply,
   createQuantityQuickReply,
   createCartOptionsQuickReply,
   createRemoveItemListQuickReply,
@@ -894,6 +895,7 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
     const sessionBaseUpdate: Partial<ConversationSession> = {
       customerPhone: standardizeWhatsappNumber(phoneNumber) || phoneNumber,
       customerPhoneRaw: phoneNumber,
+      lastUserMessageAt: Date.now(), // Track message timestamp for idle detection
     };
     if (restaurantContext.externalMerchantId) {
       sessionBaseUpdate.merchantId = restaurantContext.externalMerchantId;
@@ -902,6 +904,78 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       sessionBaseUpdate.customerName = currentState.customerName;
     }
     await updateConversationSession(conversationId, sessionBaseUpdate);
+    // Load session snapshot for this processing run (may be null if Redis isn't ready)
+    const session = await getConversationSession(conversationId);
+
+    // Idle detection and auto-restart (5 minutes = 300,000ms)
+    const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+    const isStructuredCommand = 
+      trimmedBody.startsWith('cat_') ||
+      trimmedBody.startsWith('item_') ||
+      trimmedBody.startsWith('qty_') ||
+      trimmedBody.startsWith('branch_') ||
+      trimmedBody.startsWith('remove_item_') ||
+      trimmedBody.startsWith('rate_') ||
+      trimmedBody === 'order_delivery' ||
+      trimmedBody === 'order_pickup' ||
+      trimmedBody === 'continue_chat' ||
+      trimmedBody === 'browse_menu' ||
+      trimmedBody === 'new_order' ||
+      trimmedBody === 'view_cart' ||
+      trimmedBody === 'checkout' ||
+      trimmedBody === 'add_item' ||
+      trimmedBody === 'confirm_order';
+    
+    const lastMessageTime = session?.lastUserMessageAt || 0;
+    const idleTime = Date.now() - lastMessageTime;
+    const isIdle = lastMessageTime > 0 && idleTime > IDLE_TIMEOUT_MS;
+    
+    if (isIdle && !isStructuredCommand) {
+      console.log(`⏰ User ${phoneNumber} has been idle for ${Math.round(idleTime / 1000 / 60)} minutes. Resetting conversation state.`);
+      
+      // Reset order state but preserve restaurant context
+      resetOrder(phoneNumber, { preserveRestaurant: true });
+      
+      // Clear potentially stuck session fields
+      await updateConversationSession(conversationId, {
+        ...sessionBaseUpdate,
+        selectedBranch: undefined,
+        branchId: undefined,
+        branchName: undefined,
+        branchPhone: undefined,
+        orderType: undefined,
+        paymentMethod: undefined,
+        items: [],
+        total: 0,
+      });
+      
+      // Send a helpful restart message
+      await sendTextMessage(
+        twilioClient,
+        fromNumber,
+        phoneNumber,
+        'أهلاً بعودتك! 👋 لنبدأ من جديد.'
+      );
+      
+      try {
+        const contentSid = await getCachedContentSid('order_type', () =>
+          createOrderTypeQuickReply(TWILIO_CONTENT_AUTH)
+        );
+        await sendContentMessage(twilioClient, fromNumber, phoneNumber, contentSid, {
+          logLabel: 'Order type quick reply sent after idle restart'
+        });
+      } catch (error) {
+        console.error('❌ Error sending order type quick reply after idle restart:', error);
+        await sendTextMessage(
+          twilioClient,
+          fromNumber,
+          phoneNumber,
+          'يرجى الرد بكلمة (توصيل) أو (استلام) للمتابعة.'
+        );
+      }
+      
+      return;
+    }
 
     if (!merchantId) {
       await sendTextMessage(
@@ -1386,11 +1460,25 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         branchId: getOrderState(phoneNumber).branchId || currentState.branchId,
       });
 
-      await sendBotText(`✅ شكراً لك! تم استلام موقعك: ${address}.\nتصفّح القائمة لمتابعة الطلب.`);
+      await sendBotText(`✅ شكراً لك! تم استلام موقعك: ${address}.`);
 
-      const updatedState = getOrderState(phoneNumber);
-      if (updatedState.type === 'delivery') {
-        await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
+      // Send post-location choice (continue chat or open app)
+      try {
+        const appLink = restaurantContext?.appsLink || 'https://falafeltime.sufrah.sa/apps';
+        const choiceSid = await getCachedContentSid(
+          'post_location_choice',
+          () => createPostLocationChoiceQuickReply(TWILIO_CONTENT_AUTH, appLink)
+        );
+        await sendBotContent(choiceSid, {
+          logLabel: 'Post-location choice quick reply sent'
+        });
+      } catch (error) {
+        console.error('❌ Error sending post-location choice:', error);
+        // Fallback: continue with menu if quick reply fails
+        const updatedState = getOrderState(phoneNumber);
+        if (updatedState.type === 'delivery') {
+          await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
+        }
       }
       return;
     }
@@ -1542,6 +1630,20 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
       } catch (error) {
         console.error('❌ Error sending order type quick reply:', error);
         await sendBotText('يرجى الرد بكلمة (توصيل) أو (استلام) للمتابعة.');
+      }
+      return;
+    }
+
+    // Handle continue_chat response (from post-location choice)
+    if (trimmedBody === 'continue_chat' || 
+        trimmedBody === '💬 المتابعة هنا' ||
+        normalizedBody === 'متابعة' ||
+        normalizedBody.includes('متابعة هنا')) {
+      const updatedState = getOrderState(phoneNumber);
+      if (updatedState.type === 'delivery' && !updatedState.awaitingLocation) {
+        await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
+      } else {
+        await sendBotText('يرجى اختيار نوع الطلب أولاً.');
       }
       return;
     }
@@ -2254,11 +2356,28 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
       }
     }
 
-    // Step 3: For all other messages, just log (no response)
-    console.log(`📱 Message received from returning user: ${phoneNumber} -> ${messageBody}`);
+    // Step 3: For all other unrecognized messages, provide helpful options
+    console.log(`📱 Unrecognized message from ${phoneNumber}: "${messageBody}"`);
+    
+    // Send helpful response instead of staying silent
+    await sendBotText(
+      'لم أفهم طلبك. يمكنك:\n• كتابة "طلب جديد" لبدء طلب\n• كتابة "تصفح القائمة" لعرض المنيو\n• كتابة "تتبع" لمتابعة طلبك'
+    );
+    
+    try {
+      const contentSid = await getCachedContentSid('order_type', () =>
+        createOrderTypeQuickReply(TWILIO_CONTENT_AUTH)
+      );
+      await sendBotContent(contentSid, {
+        logLabel: 'Order type quick reply sent for unrecognized message'
+      });
+    } catch (error) {
+      console.error('❌ Error sending fallback quick reply:', error);
+    }
 
   } catch (error) {
     console.error('❌ Error processing message:', error);
-    // Don't send any error messages back to user
+    // Don't send any error messages back to user, but propagate for upstream logging/alerting
+    throw error;
   }
 }

@@ -49,6 +49,7 @@ export interface ConversationSession {
   customerPhone?: string;
   customerPhoneRaw?: string;
   lastOrderNumber?: number;
+  lastUserMessageAt?: number; // timestamp in ms for idle detection
 }
 
 function buildSessionKey(conversationId: string): string {

@@ -138,6 +138,23 @@ export async function createBranchListPicker(
   return { sid, friendlyName };
 }
 
+/**
+ * Format price display for menu items, showing discount if applicable
+ */
+function formatItemPrice(item: MenuItem): string {
+  const currency = item.currency || 'ر.س';
+  const hasDiscount = item.priceAfter !== undefined && 
+                      item.priceAfter !== null && 
+                      item.priceAfter > 0 && 
+                      item.priceAfter < item.price;
+  
+  if (hasDiscount) {
+    return `قبل: ${item.price} ${currency} • الآن: ${item.priceAfter} ${currency}`;
+  }
+  
+  return `${item.price} ${currency}`;
+}
+
 export async function createItemsListPicker(
   auth: string,
   categoryId: string,
@@ -149,7 +166,7 @@ export async function createItemsListPicker(
   const friendlyName =
     options.friendlyName ?? `items_list_${categoryId}_${Date.now()}_p${page}`;
   const listItems = items.map((item) => {
-    const priceText = `${item.price} ${item.currency || 'ر.س'}`;
+    const priceText = formatItemPrice(item);
     const fullDescription = item.description
       ? `${item.description} • ${priceText}`
       : priceText;
@@ -176,7 +193,7 @@ export async function createItemsListPicker(
       },
       'twilio/text': {
         body: `أطباق {{1}}${pageIndicator}: ${items
-          .map((x) => `${x.item} (${x.price} ${x.currency || 'ر.س'})`)
+          .map((x) => `${x.item} (${formatItemPrice(x)})`)
           .join('، ')}`,
       },
     },
@@ -210,6 +227,30 @@ export async function createPostItemChoiceQuickReply(auth: string): Promise<stri
   } as any;
 
   return createContent(auth, payload, 'Quick reply created');
+}
+
+export async function createPostLocationChoiceQuickReply(
+  auth: string,
+  appLink: string = 'https://falafeltime.sufrah.sa/apps'
+): Promise<string> {
+  const payload = {
+    friendly_name: `post_location_choice_${Date.now()}`,
+    language: 'ar',
+    types: {
+      'twilio/quick-reply': {
+        body: 'هل ترغب في المتابعة هنا أم فتح التطبيق؟',
+        actions: [
+          { id: 'continue_chat', title: '💬 المتابعة هنا', type: 'QUICK_REPLY' },
+          { title: '📱 فتح التطبيق', type: 'URL', url: appLink },
+        ],
+      },
+      'twilio/text': {
+        body: `هل ترغب في المتابعة هنا أم فتح التطبيق؟\n\nرابط التطبيق: ${appLink}\n\nاكتب "متابعة" للمتابعة في المحادثة.`,
+      },
+    },
+  } as any;
+
+  return createContent(auth, payload, 'Post-location choice quick reply created');
 }
 
 export async function createLocationRequestQuickReply(auth: string): Promise<string> {
