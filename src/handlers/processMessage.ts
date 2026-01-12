@@ -39,7 +39,6 @@ import {
   createItemsListPicker,
   createPostItemChoiceQuickReply,
   createLocationRequestQuickReply,
-  createPostLocationChoiceQuickReply,
   createQuantityQuickReply,
   createCartOptionsQuickReply,
   createRemoveItemListQuickReply,
@@ -919,6 +918,8 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       trimmedBody === 'order_delivery' ||
       trimmedBody === 'order_pickup' ||
       trimmedBody === 'continue_chat' ||
+      trimmedBody === 'المتابعة هنا' ||
+      trimmedBody === '💬 المتابعة هنا' ||
       trimmedBody === 'browse_menu' ||
       trimmedBody === 'new_order' ||
       trimmedBody === 'view_cart' ||
@@ -1460,20 +1461,16 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         branchId: getOrderState(phoneNumber).branchId || currentState.branchId,
       });
 
-      // Send post-location choice (continue chat or open app) - skip location confirmation message
+      // Send post-location choice using the approved template
+      const postLocationContentSid = process.env.CONTENT_SID_POST_LOCATION || 'HXa4b7d1f81753686130b19a0179e14dca';
+      
       try {
-        const appLink = restaurantContext?.appsLink || 'https://falafeltime.sufrah.sa/apps';
-        const choiceSid = await getCachedContentSid(
-          'post_location_choice',
-          () => createPostLocationChoiceQuickReply(TWILIO_CONTENT_AUTH, appLink)
-        );
-        await sendBotContent(choiceSid, {
-          logLabel: 'Post-location choice quick reply sent'
+        await sendBotContent(postLocationContentSid, {
+          logLabel: 'Post-location choice template sent'
         });
       } catch (error) {
-        console.error('❌ Error sending post-location choice:', error);
-        // Fallback: send location confirmation and continue with menu if quick reply fails
-        await sendBotText(`✅ شكراً لك! تم استلام موقعك: ${address}.`);
+        console.error('❌ Error sending post-location template:', error);
+        // Fallback: show menu directly if template fails
         const updatedState = getOrderState(phoneNumber);
         if (updatedState.type === 'delivery') {
           await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
@@ -1633,9 +1630,10 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
       return;
     }
 
-    // Handle continue_chat response (from post-location choice)
+    // Handle continue_chat response (from post-location choice buttons)
     if (trimmedBody === 'continue_chat' || 
         trimmedBody === '💬 المتابعة هنا' ||
+        trimmedBody === 'المتابعة هنا' ||
         normalizedBody === 'متابعة' ||
         normalizedBody.includes('متابعة هنا')) {
       const updatedState = getOrderState(phoneNumber);

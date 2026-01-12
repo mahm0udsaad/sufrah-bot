@@ -229,30 +229,6 @@ export async function createPostItemChoiceQuickReply(auth: string): Promise<stri
   return createContent(auth, payload, 'Quick reply created');
 }
 
-export async function createPostLocationChoiceQuickReply(
-  auth: string,
-  appLink: string = 'https://falafeltime.sufrah.sa/apps'
-): Promise<string> {
-  const payload = {
-    friendly_name: `post_location_choice_${Date.now()}`,
-    language: 'ar',
-    types: {
-      'twilio/quick-reply': {
-        body: 'هل ترغب في المتابعة هنا أم فتح التطبيق؟',
-        actions: [
-          { id: 'continue_chat', title: '💬 المتابعة هنا', type: 'QUICK_REPLY' },
-          { title: '📱 فتح التطبيق', type: 'URL', url: appLink },
-        ],
-      },
-      'twilio/text': {
-        body: `هل ترغب في المتابعة هنا أم فتح التطبيق؟\n\nرابط التطبيق: ${appLink}\n\nاكتب "متابعة" للمتابعة في المحادثة.`,
-      },
-    },
-  } as any;
-
-  return createContent(auth, payload, 'Post-location choice quick reply created');
-}
-
 export async function createLocationRequestQuickReply(auth: string): Promise<string> {
   const payload = {
     friendly_name: `location_request_${Date.now()}`,
