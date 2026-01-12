@@ -1182,6 +1182,36 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       }
     };
 
+    // Handle post-location button responses BEFORE other handlers
+    // Handle continue_chat response (from post-location choice buttons)
+    if (trimmedBody === 'continue_chat' || 
+        trimmedBody === '💬 المتابعة هنا' ||
+        trimmedBody === 'المتابعة هنا' ||
+        normalizedBody === 'متابعة' ||
+        normalizedBody.includes('متابعة هنا')) {
+      const updatedState = getOrderState(phoneNumber);
+      if (updatedState.type === 'delivery' && !updatedState.awaitingLocation) {
+        await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
+      } else {
+        await sendBotText('يرجى اختيار نوع الطلب أولاً.');
+      }
+      return;
+    }
+
+    // Handle open_app response (from post-location choice buttons)
+    if (trimmedBody === 'open_app' ||
+        trimmedBody === 'فتح التطبيق' ||
+        trimmedBody === '📱 فتح التطبيق' ||
+        normalizedBody.includes('فتح التطبيق') ||
+        normalizedBody.includes('افتح التطبيق')) {
+      const appLink = restaurantContext?.appsLink || 'https://falafeltime.sufrah.sa/apps';
+      await sendBotText(
+        `📱 يمكنك تحميل تطبيقنا وإكمال طلبك من هنا:\n\n${appLink}\n\n` +
+        `شكراً لك! نسعد بخدمتك دائماً 🌟`
+      );
+      return;
+    }
+
     // Step 1: Handle rating responses (rate_1 through rate_5 or plain numbers)
     const ratingFromReply = parseRatingFromReply(trimmedBody);
     const ratingFromText = /^[1-5]$/.test(trimmedBody) ? parseInt(trimmedBody, 10) : null;
@@ -1630,35 +1660,6 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         console.error('❌ Error sending order type quick reply:', error);
         await sendBotText('يرجى الرد بكلمة (توصيل) أو (استلام) للمتابعة.');
       }
-      return;
-    }
-
-    // Handle continue_chat response (from post-location choice buttons)
-    if (trimmedBody === 'continue_chat' || 
-        trimmedBody === '💬 المتابعة هنا' ||
-        trimmedBody === 'المتابعة هنا' ||
-        normalizedBody === 'متابعة' ||
-        normalizedBody.includes('متابعة هنا')) {
-      const updatedState = getOrderState(phoneNumber);
-      if (updatedState.type === 'delivery' && !updatedState.awaitingLocation) {
-        await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
-      } else {
-        await sendBotText('يرجى اختيار نوع الطلب أولاً.');
-      }
-      return;
-    }
-
-    // Handle open_app response (from post-location choice buttons)
-    if (trimmedBody === 'open_app' ||
-        trimmedBody === 'فتح التطبيق' ||
-        trimmedBody === '📱 فتح التطبيق' ||
-        normalizedBody.includes('فتح التطبيق') ||
-        normalizedBody.includes('افتح التطبيق')) {
-      const appLink = restaurantContext?.appsLink || 'https://falafeltime.sufrah.sa/apps';
-      await sendBotText(
-        `📱 يمكنك تحميل تطبيقنا وإكمال طلبك من هنا:\n\n${appLink}\n\n` +
-        `شكراً لك! نسعد بخدمتك دائماً 🌟`
-      );
       return;
     }
 
