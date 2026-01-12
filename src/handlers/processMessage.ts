@@ -920,6 +920,9 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
       trimmedBody === 'continue_chat' ||
       trimmedBody === 'المتابعة هنا' ||
       trimmedBody === '💬 المتابعة هنا' ||
+      trimmedBody === 'open_app' ||
+      trimmedBody === 'فتح التطبيق' ||
+      trimmedBody === '📱 فتح التطبيق' ||
       trimmedBody === 'browse_menu' ||
       trimmedBody === 'new_order' ||
       trimmedBody === 'view_cart' ||
@@ -1642,6 +1645,20 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
       } else {
         await sendBotText('يرجى اختيار نوع الطلب أولاً.');
       }
+      return;
+    }
+
+    // Handle open_app response (from post-location choice buttons)
+    if (trimmedBody === 'open_app' ||
+        trimmedBody === 'فتح التطبيق' ||
+        trimmedBody === '📱 فتح التطبيق' ||
+        normalizedBody.includes('فتح التطبيق') ||
+        normalizedBody.includes('افتح التطبيق')) {
+      const appLink = restaurantContext?.appsLink || 'https://falafeltime.sufrah.sa/apps';
+      await sendBotText(
+        `📱 يمكنك تحميل تطبيقنا وإكمال طلبك من هنا:\n\n${appLink}\n\n` +
+        `شكراً لك! نسعد بخدمتك دائماً 🌟`
+      );
       return;
     }
 
