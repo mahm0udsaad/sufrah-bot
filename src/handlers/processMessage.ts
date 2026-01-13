@@ -1183,12 +1183,24 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
     };
 
     // Handle post-location button responses BEFORE other handlers
+    // NOTE: For interactive messages, inboundHandler passes ButtonPayload into `messageBody`,
+    // and also provides `extra.buttonPayload` + `extra.buttonText`.
+    // We must key off BOTH payload and displayed text to avoid mis-routing (e.g. URL button clicks).
+    const buttonPayload = (extra?.buttonPayload ?? '').toString().trim();
+    const buttonText = (extra?.buttonText ?? '').toString().trim();
+    const interactiveValue = (buttonPayload || trimmedBody || '').trim();
+    const interactiveText = (buttonText || trimmedBody || '').trim();
+    const interactiveValueLower = interactiveValue.toLowerCase();
+    const interactiveTextLower = interactiveText.toLowerCase();
+
     // Handle continue_chat response (from post-location choice buttons)
-    if (trimmedBody === 'continue_chat' || 
-        trimmedBody === '💬 المتابعة هنا' ||
-        trimmedBody === 'المتابعة هنا' ||
-        normalizedBody === 'متابعة' ||
-        normalizedBody.includes('متابعة هنا')) {
+    if (
+      interactiveValue === 'continue_chat' ||
+      interactiveText.includes('المتابعة هنا') ||
+      interactiveText.includes('💬') ||
+      interactiveTextLower === 'متابعة' ||
+      interactiveTextLower.includes('متابعة هنا')
+    ) {
       const updatedState = getOrderState(phoneNumber);
       if (updatedState.type === 'delivery' && !updatedState.awaitingLocation) {
         await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
@@ -1199,11 +1211,12 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
     }
 
     // Handle open_app response (from post-location choice buttons)
-    if (trimmedBody === 'open_app' ||
-        trimmedBody === 'فتح التطبيق' ||
-        trimmedBody === '📱 فتح التطبيق' ||
-        normalizedBody.includes('فتح التطبيق') ||
-        normalizedBody.includes('افتح التطبيق')) {
+    if (
+      interactiveValue === 'open_app' ||
+      interactiveText.includes('فتح التطبيق') ||
+      interactiveText.includes('📱') ||
+      interactiveTextLower.includes('افتح التطبيق')
+    ) {
       const appLink = restaurantContext?.appsLink || 'https://falafeltime.sufrah.sa/apps';
       await sendBotText(
         `📱 يمكنك تحميل تطبيقنا وإكمال طلبك من هنا:\n\n${appLink}\n\n` +
@@ -1213,7 +1226,7 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
     }
 
     // Step 1: Handle rating responses (rate_1 through rate_5 or plain numbers)
-    const ratingFromReply = parseRatingFromReply(trimmedBody);
+    const ratingFromReply = parseRatingFromReply(interactiveValue || trimmedBody);
     const ratingFromText = /^[1-5]$/.test(trimmedBody) ? parseInt(trimmedBody, 10) : null;
     const rating = ratingFromReply ?? ratingFromText;
 
