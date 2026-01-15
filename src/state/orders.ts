@@ -59,6 +59,8 @@ export function addItemToCart(
   if (existing) {
     existing.quantity += safeQuantity;
     existing.addons = normalizedAddons;
+    existing.price = item.price;
+    existing.priceAfter = item.priceAfter;
     existing.notes = item.notes ?? existing.notes;
     return existing;
   }
@@ -104,7 +106,10 @@ export function calculateCartTotal(cart: CartItem[]): { total: number; currency?
   let total = 0;
   let currency: string | undefined;
   cart.forEach((item) => {
-    const basePrice = normalizeNumber(item.price);
+    const basePrice =
+      item.priceAfter !== null && item.priceAfter !== undefined
+        ? normalizeNumber(item.priceAfter)
+        : normalizeNumber(item.price);
     const baseTotal = basePrice * Math.max(1, item.quantity);
     const addonsTotal = normalizeAddons(item.addons).reduce((sum, addon) => {
       if (!currency && addon.currency) {
@@ -127,7 +132,11 @@ export function formatCartMessage(cart: CartItem[]): string {
     return '🛒 السلة فارغة.';
   }
   const lines = cart.flatMap((item) => {
-    const baseTotal = Number((normalizeNumber(item.price) * item.quantity).toFixed(2));
+    const unitPrice =
+      item.priceAfter !== null && item.priceAfter !== undefined
+        ? normalizeNumber(item.priceAfter)
+        : normalizeNumber(item.price);
+    const baseTotal = Number((unitPrice * item.quantity).toFixed(2));
     const baseLine = `${item.quantity} × ${item.name} — ${baseTotal} ${item.currency || 'ر.س'}`;
     const addonLines = normalizeAddons(item.addons).map((addon) => {
       const addonTotal = Number((addon.price * addon.quantity).toFixed(2));

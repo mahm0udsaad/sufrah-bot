@@ -28,6 +28,7 @@ export type OrderSubmissionErrorCode =
   | 'MERCHANT_NOT_CONFIGURED'
   | 'NO_BRANCH_SELECTED'
   | 'INVALID_ITEMS'
+  | 'MIN_ORDER_NOT_MET'
   | 'API_ERROR'
   | 'MISSING_PAYMENT_METHOD'
   | 'MISSING_ORDER_TYPE'
@@ -65,6 +66,7 @@ function buildSufrahUrl(path: string): string {
   return `${base}/${cleanedPath}`;
 }
 const BRANCH_CACHE_TTL_SECONDS = 600;
+const MIN_ORDER_TOTAL_SAR = 20;
 
 function isRedisReady(): boolean {
   return (redis as any)?.status === 'ready';
@@ -147,7 +149,9 @@ function cartItemToSession(item: CartItem): SessionOrderItem {
     productId: item.id,
     name: item.name,
     quantity: Math.max(1, item.quantity ?? 1),
-    unitPrice: roundToTwo(item.price),
+    unitPrice: roundToTwo(
+      item.priceAfter !== null && item.priceAfter !== undefined ? item.priceAfter : item.price
+    ),
     currency: item.currency,
     notes: item.notes,
     addons,
@@ -333,6 +337,13 @@ export async function submitExternalOrder(
           const { total, currency } = calculateCartTotal(cart);
           return { total: roundToTwo(total), currency: currency || 'SAR' };
         })();
+
+  if (totals.total < MIN_ORDER_TOTAL_SAR) {
+    throw new OrderSubmissionError(
+      'MIN_ORDER_NOT_MET',
+      `Minimum order amount is ${MIN_ORDER_TOTAL_SAR} SAR.`
+    );
+  }
 
   const rawCustomerPhoneInput =
     session?.customerPhoneRaw || session?.customerPhone || customerPhone;

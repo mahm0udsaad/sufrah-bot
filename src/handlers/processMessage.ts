@@ -132,7 +132,9 @@ function toSessionOrderItems(cart: CartItem[]): SessionOrderItem[] {
     productId: item.id,
     name: item.name,
     quantity: item.quantity,
-    unitPrice: roundToTwo(item.price),
+    unitPrice: roundToTwo(
+      item.priceAfter !== null && item.priceAfter !== undefined ? item.priceAfter : item.price
+    ),
     currency: item.currency,
     notes: item.notes,
     addons: (item.addons ?? []).map((addon: CartAddon) => ({
@@ -150,7 +152,9 @@ function buildCartSummary(cart: CartItem[]): { lines: string[]; total: number; c
   const fallbackCurrency = currency || DEFAULT_CURRENCY;
   const lines = cart.flatMap((item) => {
     const itemCurrency = item.currency || fallbackCurrency;
-    const baseTotal = roundToTwo(item.price * item.quantity);
+    const unitPrice =
+      item.priceAfter !== null && item.priceAfter !== undefined ? item.priceAfter : item.price;
+    const baseTotal = roundToTwo(unitPrice * item.quantity);
     const baseLine = `- ${item.name} x${item.quantity} = ${baseTotal} ${itemCurrency}`;
     const addonLines = (item.addons ?? []).map((addon: CartAddon) => {
       const addonCurrency = addon.currency || itemCurrency || fallbackCurrency;
@@ -481,7 +485,11 @@ export async function finalizeItemQuantity(
     (sum: number, addon: CartAddon) => sum + addon.price * addon.quantity,
     0
   );
-  const lineTotal = roundToTwo(pendingItem.price * quantity + addonsTotal);
+  const unitPrice =
+    pendingItem.priceAfter !== null && pendingItem.priceAfter !== undefined
+      ? pendingItem.priceAfter
+      : pendingItem.price;
+  const lineTotal = roundToTwo(unitPrice * quantity + addonsTotal);
   const additionText = `✅ تم إضافة ${quantity} × ${pendingItem.name} إلى السلة (الإجمالي ${lineTotal} ${currency})`;
   
   console.log(`🔍 DEBUG: Sending confirmation message to ${phoneNumber}: "${additionText}"`);
@@ -1116,7 +1124,11 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
         const itemsText = `🍽️ اختر طبقاً من ${category.item}:\n\n${items
           .map(
             (it, index) =>
-              `${index + 1}. ${it.item}${it.description ? ` — ${it.description}` : ''} (${it.price} ${it.currency || 'ر.س'})`
+              `${index + 1}. ${it.item}${it.description ? ` — ${it.description}` : ''} (${
+                it.priceAfter !== null && it.priceAfter !== undefined
+                  ? `قبل: ${it.price} ${it.currency || 'ر.س'} • الآن: ${it.priceAfter} ${it.currency || 'ر.س'}`
+                  : `${it.price} ${it.currency || 'ر.س'}`
+              })`
           )
           .join('\n')}\n\nاكتب رقم الطبق أو اسمه.`;
         
@@ -1133,6 +1145,14 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
     };
 
     const handleItemSelection = async (picked: MenuItem) => {
+      const formatPickedPrice = (item: MenuItem): string => {
+        const currency = item.currency || 'ر.س';
+        if (item.priceAfter !== null && item.priceAfter !== undefined) {
+          return `قبل: ${item.price} ${currency} • الآن: ${item.priceAfter} ${currency}`;
+        }
+        return `${item.price} ${currency}`;
+      };
+
       updateOrderState(phoneNumber, { activeCategoryId: picked.categoryId });
 
       setPendingItem(
@@ -1141,6 +1161,7 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
           id: picked.id,
           name: picked.item,
           price: picked.price,
+          priceAfter: picked.priceAfter ?? undefined,
           currency: picked.currency,
           image: picked.image,
         },
@@ -1151,7 +1172,7 @@ export async function processMessage(phoneNumber: string, messageBody: string, m
         twilioClient,
         fromNumber,
         phoneNumber,
-        `✅ تم اختيار ${picked.item} (${picked.price} ${picked.currency || 'ر.س'})`,
+        `✅ تم اختيار ${picked.item} (${formatPickedPrice(picked)})`,
         picked.image
       );
 
@@ -2130,6 +2151,13 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         return;
       }
 
+      const { total: cartTotal } = calculateCartTotal(cart);
+      if (cartTotal < 20) {
+        await sendBotText('⚠️ الحد الأدنى للطلب 20 ر.س. تصفح قائمتنا لإضافة أصناف.');
+        await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
+        return;
+      }
+
       const checkoutState = getOrderState(phoneNumber);
       if (checkoutState.type === 'delivery' && !checkoutState.locationAddress) {
         await sendBotText("فضلاً شارك موقع التوصيل أولاً حتى نتمكن من حساب رسوم التوصيل."
@@ -2195,6 +2223,14 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
     }
 
     if (trimmedBody === 'pay_online' || normalizedBody.includes('pay online') || trimmedBody === '💳 pay online' || normalizedBody.includes('دفع إلكتروني')) {
+      const cart = getCart(phoneNumber);
+      const { total: cartTotal } = calculateCartTotal(cart);
+      if (cartTotal < 20) {
+        await sendBotText('⚠️ الحد الأدنى للطلب 20 ر.س. تصفح قائمتنا لإضافة أصناف.');
+        await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
+        return;
+      }
+
       updateOrderState(phoneNumber, { paymentMethod: 'online' });
       await syncSessionWithCart(conversationId, phoneNumber);
 
@@ -2214,6 +2250,11 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         // Session preserved to track lastOrderNumber
       } catch (error) {
         if (error instanceof OrderSubmissionError) {
+          if (error.code === 'MIN_ORDER_NOT_MET') {
+            await sendBotText('⚠️ الحد الأدنى للطلب 20 ر.س. تصفح قائمتنا لإضافة أصناف.');
+            await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
+            return;
+          }
           if (error.code === 'NO_BRANCH_SELECTED') {
             await sendBotText('⚠️ يرجى اختيار الفرع قبل تأكيد الطلب.');
             if (onlinePaymentState.type === 'pickup') {
@@ -2252,6 +2293,14 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         normalizedBody.includes('cash') ||
         normalizedBody.includes('نقدي') ||
         normalizedArabic.includes('الدفع عند الاستلام')) {
+      const cart = getCart(phoneNumber);
+      const { total: cartTotal } = calculateCartTotal(cart);
+      if (cartTotal < 20) {
+        await sendBotText('⚠️ الحد الأدنى للطلب 20 ر.س. تصفح قائمتنا لإضافة أصناف.');
+        await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
+        return;
+      }
+
       updateOrderState(phoneNumber, { paymentMethod: 'cash' });
       await syncSessionWithCart(conversationId, phoneNumber);
 
@@ -2279,6 +2328,11 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         // نحتفظ بجلسة المحادثة لعرض lastOrderNumber لاحقاً
       } catch (error) {
         if (error instanceof OrderSubmissionError) {
+          if (error.code === 'MIN_ORDER_NOT_MET') {
+            await sendBotText('⚠️ الحد الأدنى للطلب 20 ر.س. تصفح قائمتنا لإضافة أصناف.');
+            await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
+            return;
+          }
           if (error.code === 'NO_BRANCH_SELECTED') {
             await sendBotText('⚠️ يرجى اختيار الفرع قبل تأكيد الطلب.');
             if (paymentState.type === 'pickup') {
@@ -2325,6 +2379,14 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
 
     if (isConfirmationTrigger) {
       try {
+        const cart = getCart(phoneNumber);
+        const { total: cartTotal } = calculateCartTotal(cart);
+        if (cartTotal < 20) {
+          await sendBotText('⚠️ الحد الأدنى للطلب 20 ر.س. تصفح قائمتنا لإضافة أصناف.');
+          await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
+          return;
+        }
+
         await syncSessionWithCart(conversationId, phoneNumber);
         const orderNumber = await submitExternalOrder(conversationId, {
           twilioClient: twilioClient,
@@ -2340,6 +2402,11 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         return;
       } catch (error) {
         if (error instanceof OrderSubmissionError) {
+          if (error.code === 'MIN_ORDER_NOT_MET') {
+            await sendBotText('⚠️ الحد الأدنى للطلب 20 ر.س. تصفح قائمتنا لإضافة أصناف.');
+            await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
+            return;
+          }
           if (error.code === 'NO_BRANCH_SELECTED') {
             await sendBotText('⚠️ يرجى اختيار الفرع قبل تأكيد الطلب.');
             return;

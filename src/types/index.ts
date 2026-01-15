@@ -16,6 +16,11 @@ export interface CartItem {
   id: string;
   name: string;
   price: number;
+  /**
+   * Optional discounted unit price.
+   * When present, pricing calculations should prefer this over `price`.
+   */
+  priceAfter?: number;
   quantity: number;
   currency?: string;
   image?: string;

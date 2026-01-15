@@ -143,15 +143,9 @@ export async function createBranchListPicker(
  */
 function formatItemPrice(item: MenuItem): string {
   const currency = item.currency || 'ر.س';
-  const hasDiscount = item.priceAfter !== undefined && 
-                      item.priceAfter !== null && 
-                      item.priceAfter > 0 && 
-                      item.priceAfter < item.price;
-  
-  if (hasDiscount) {
+  if (item.priceAfter !== undefined && item.priceAfter !== null) {
     return `قبل: ${item.price} ${currency} • الآن: ${item.priceAfter} ${currency}`;
   }
-  
   return `${item.price} ${currency}`;
 }
 

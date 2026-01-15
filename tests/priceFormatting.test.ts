@@ -3,15 +3,9 @@ import { describe, it, expect } from 'bun:test';
 // Helper to format item price display (matches implementation in quickReplies.ts)
 function formatItemPrice(item: { price: number; priceAfter?: number; currency?: string }): string {
   const currency = item.currency || 'ر.س';
-  const hasDiscount = item.priceAfter !== undefined && 
-                      item.priceAfter !== null && 
-                      item.priceAfter > 0 && 
-                      item.priceAfter < item.price;
-  
-  if (hasDiscount) {
+  if (item.priceAfter !== undefined && item.priceAfter !== null) {
     return `قبل: ${item.price} ${currency} • الآن: ${item.priceAfter} ${currency}`;
   }
-  
   return `${item.price} ${currency}`;
 }
 
@@ -26,19 +20,19 @@ describe('Price Formatting', () => {
     expect(formatItemPrice(item)).toBe('قبل: 35 ر.س • الآن: 25 ر.س');
   });
 
-  it('should not show discount when priceAfter equals price', () => {
+  it('should show both when priceAfter equals price', () => {
     const item = { price: 35, priceAfter: 35, currency: 'ر.س' };
-    expect(formatItemPrice(item)).toBe('35 ر.س');
+    expect(formatItemPrice(item)).toBe('قبل: 35 ر.س • الآن: 35 ر.س');
   });
 
-  it('should not show discount when priceAfter is greater than price', () => {
+  it('should show both when priceAfter is greater than price', () => {
     const item = { price: 35, priceAfter: 40, currency: 'ر.س' };
-    expect(formatItemPrice(item)).toBe('35 ر.س');
+    expect(formatItemPrice(item)).toBe('قبل: 35 ر.س • الآن: 40 ر.س');
   });
 
-  it('should not show discount when priceAfter is zero', () => {
+  it('should show both when priceAfter is zero', () => {
     const item = { price: 35, priceAfter: 0, currency: 'ر.س' };
-    expect(formatItemPrice(item)).toBe('35 ر.س');
+    expect(formatItemPrice(item)).toBe('قبل: 35 ر.س • الآن: 0 ر.س');
   });
 
   it('should use default currency when not specified', () => {
