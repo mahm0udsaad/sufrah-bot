@@ -338,7 +338,7 @@ export async function submitExternalOrder(
           return { total: roundToTwo(total), currency: currency || 'SAR' };
         })();
 
-  if (totals.total < MIN_ORDER_TOTAL_SAR) {
+  if (orderType === 'Delivery' && totals.total < MIN_ORDER_TOTAL_SAR) {
     throw new OrderSubmissionError(
       'MIN_ORDER_NOT_MET',
       `Minimum order amount is ${MIN_ORDER_TOTAL_SAR} SAR.`

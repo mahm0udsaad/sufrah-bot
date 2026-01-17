@@ -3,6 +3,7 @@ import { prisma } from '../../../db/client';
 import { listConversations, getConversationById, markConversationRead as markDbConversationRead } from '../../../db/conversationService';
 import { listMessages } from '../../../db/messageService';
 import { DASHBOARD_PAT } from '../../../config';
+import { resolveRestaurantId } from '../../../utils/restaurantResolver';
 
 /**
  * NEW DATABASE-BACKED CONVERSATION API
@@ -28,6 +29,7 @@ interface MessageApiResponse {
   conversationId: string;
   restaurantId: string;
   direction: 'IN' | 'OUT';
+  is_from_customer: boolean;
   messageType: string;
   content: string;
   mediaUrl: string | null;
@@ -36,7 +38,25 @@ interface MessageApiResponse {
   metadata?: any;
 }
 
-function authenticate(req: Request): { ok: boolean; restaurantId?: string; error?: string } {
+async function resolveRestaurantIdFromHeader(
+  headerValue: string
+): Promise<{ ok: boolean; restaurantId?: string; error?: string }> {
+  const raw = (headerValue || '').trim();
+  if (!raw) {
+    return { ok: false, error: 'X-Restaurant-Id header is required' };
+  }
+
+  // Preferred: X-Restaurant-Id is a RestaurantBot.id; resolve to Restaurant.id
+  const resolved = await resolveRestaurantId(raw);
+  if (resolved?.restaurantId) {
+    return { ok: true, restaurantId: resolved.restaurantId };
+  }
+
+  // Backward compatibility: allow passing Restaurant.id directly
+  return { ok: true, restaurantId: raw };
+}
+
+async function authenticate(req: Request): Promise<{ ok: boolean; restaurantId?: string; error?: string }> {
   const authHeader = req.headers.get('authorization') || '';
   const restaurantIdHeader = req.headers.get('x-restaurant-id') || '';
 
@@ -45,10 +65,7 @@ function authenticate(req: Request): { ok: boolean; restaurantId?: string; error
   if (bearer && bearer[1]) token = bearer[1].trim();
 
   if (DASHBOARD_PAT && token && token === DASHBOARD_PAT) {
-    if (!restaurantIdHeader) {
-      return { ok: false, error: 'X-Restaurant-Id header is required' };
-    }
-    return { ok: true, restaurantId: restaurantIdHeader };
+    return await resolveRestaurantIdFromHeader(restaurantIdHeader);
   }
 
   return { ok: false, error: 'Unauthorized' };
@@ -60,7 +77,7 @@ export async function handleConversationsDbApi(req: Request, url: URL): Promise<
     return null;
   }
 
-  const auth = authenticate(req);
+  const auth = await authenticate(req);
   if (!auth.ok) {
     return jsonResponse({ error: auth.error || 'Unauthorized' }, auth.error?.includes('required') ? 400 : 401);
   }
@@ -152,8 +169,20 @@ export async function handleConversationsDbApi(req: Request, url: URL): Promise<
 
       const limit = parseInt(url.searchParams.get('limit') || '100', 10);
       const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+      const beforeParam = url.searchParams.get('before');
+      let before: Date | undefined;
+      if (beforeParam) {
+        const parsed = new Date(beforeParam);
+        if (Number.isNaN(parsed.getTime())) {
+          return jsonResponse(
+            { error: 'Invalid before cursor. Must be an ISO datetime, e.g. 2026-01-17T12:34:56.000Z' },
+            400
+          );
+        }
+        before = parsed;
+      }
 
-      const messages = await listMessages(conversationId, { limit, offset, order: 'desc' });
+      const messages = await listMessages(conversationId, { limit, offset, before, order: 'desc' });
       const ordered = messages.slice().reverse();
 
       const response: MessageApiResponse[] = ordered.map((msg) => ({
@@ -161,6 +190,7 @@ export async function handleConversationsDbApi(req: Request, url: URL): Promise<
         conversationId: msg.conversationId,
         restaurantId: msg.restaurantId,
         direction: msg.direction,
+        is_from_customer: msg.direction === 'IN',
         messageType: msg.messageType,
         content: msg.content,
         mediaUrl: msg.mediaUrl,
@@ -174,7 +204,8 @@ export async function handleConversationsDbApi(req: Request, url: URL): Promise<
         console.error('⚠️ Failed to mark conversation as read:', err);
       });
 
-      return jsonResponse(response);
+      // Standard response shape: { messages: [...] }
+      return jsonResponse({ messages: response });
     } catch (error) {
       console.error(`❌ Failed to get messages for conversation ${conversationId} from DB:`, error);
       return jsonResponse({ error: 'Failed to fetch messages' }, 500);

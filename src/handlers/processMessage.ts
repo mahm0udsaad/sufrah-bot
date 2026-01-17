@@ -2151,14 +2151,13 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         return;
       }
 
+      const checkoutState = getOrderState(phoneNumber);
       const { total: cartTotal } = calculateCartTotal(cart);
-      if (cartTotal < 20) {
+      if (checkoutState.type === 'delivery' && cartTotal < 20) {
         await sendBotText('⚠️ الحد الأدنى للطلب 20 ر.س. تصفح قائمتنا لإضافة أصناف.');
         await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
         return;
       }
-
-      const checkoutState = getOrderState(phoneNumber);
       if (checkoutState.type === 'delivery' && !checkoutState.locationAddress) {
         await sendBotText("فضلاً شارك موقع التوصيل أولاً حتى نتمكن من حساب رسوم التوصيل."
         );
@@ -2225,7 +2224,8 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
     if (trimmedBody === 'pay_online' || normalizedBody.includes('pay online') || trimmedBody === '💳 pay online' || normalizedBody.includes('دفع إلكتروني')) {
       const cart = getCart(phoneNumber);
       const { total: cartTotal } = calculateCartTotal(cart);
-      if (cartTotal < 20) {
+      const state = getOrderState(phoneNumber);
+      if (state.type === 'delivery' && cartTotal < 20) {
         await sendBotText('⚠️ الحد الأدنى للطلب 20 ر.س. تصفح قائمتنا لإضافة أصناف.');
         await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
         return;
@@ -2295,7 +2295,8 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
         normalizedArabic.includes('الدفع عند الاستلام')) {
       const cart = getCart(phoneNumber);
       const { total: cartTotal } = calculateCartTotal(cart);
-      if (cartTotal < 20) {
+      const state = getOrderState(phoneNumber);
+      if (state.type === 'delivery' && cartTotal < 20) {
         await sendBotText('⚠️ الحد الأدنى للطلب 20 ر.س. تصفح قائمتنا لإضافة أصناف.');
         await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
         return;
@@ -2381,7 +2382,8 @@ https://play.google.com/store/apps/details?id=com.sufrah.shawarma_ocean_app&pcam
       try {
         const cart = getCart(phoneNumber);
         const { total: cartTotal } = calculateCartTotal(cart);
-        if (cartTotal < 20) {
+        const state = getOrderState(phoneNumber);
+        if (state.type === 'delivery' && cartTotal < 20) {
           await sendBotText('⚠️ الحد الأدنى للطلب 20 ر.س. تصفح قائمتنا لإضافة أصناف.');
           await sendMenuCategories(twilioClient, fromNumber, phoneNumber, merchantId);
           return;

@@ -1,6 +1,55 @@
 import type { TwilioClient, MessageType } from '../types';
 import { appendMessageToConversation } from '../state/conversations';
 import { ensureWhatsAppAddress, normalizePhoneNumber } from '../utils/phone';
+import { findRestaurantByWhatsAppNumber } from '../db/restaurantService';
+import { findOrCreateConversation, updateConversation } from '../db/conversationService';
+import { createOutboundMessage } from '../db/messageService';
+
+async function persistOutboundMessageToDb(params: {
+  from: string;
+  to: string;
+  waSid: string | null | undefined;
+  messageType: string;
+  content: string;
+  mediaUrl?: string | null;
+  metadata?: any;
+}): Promise<void> {
+  const { from, to, waSid, messageType, content, mediaUrl, metadata } = params;
+  if (!waSid) return;
+
+  try {
+    const bot = await findRestaurantByWhatsAppNumber(from);
+    const restaurantId = bot?.restaurantId;
+    if (!restaurantId) {
+      return;
+    }
+
+    const normalizedTo = normalizePhoneNumber(to);
+    const normalizedFrom = normalizePhoneNumber(from);
+    if (!normalizedTo || !normalizedFrom) {
+      return;
+    }
+
+    const conversation = await findOrCreateConversation(restaurantId, normalizedTo);
+    await createOutboundMessage({
+      conversationId: conversation.id,
+      restaurantId,
+      waSid,
+      fromPhone: normalizedFrom,
+      toPhone: normalizedTo,
+      messageType,
+      content,
+      mediaUrl: mediaUrl ?? undefined,
+      metadata,
+    });
+
+    await updateConversation(conversation.id, {
+      lastMessageAt: new Date(),
+    });
+  } catch (error) {
+    console.error('❌ Failed to persist outbound message to DB:', error);
+  }
+}
 
 export async function sendTextMessage(
   client: TwilioClient,
@@ -30,6 +79,14 @@ export async function sendTextMessage(
       messageType: 'text',
       content: text,
       isFromCustomer: false,
+    });
+    await persistOutboundMessageToDb({
+      from,
+      to,
+      waSid: message.sid,
+      messageType: 'text',
+      content: text,
+      metadata: { source: 'bot', channel: 'twilio' },
     });
     return message;
   } catch (error) {
@@ -84,6 +141,20 @@ export async function sendContentMessage(
       messageType: 'template',
       content: `content:${contentSid}`,
       isFromCustomer: false,
+    });
+    await persistOutboundMessageToDb({
+      from,
+      to,
+      waSid: message.sid,
+      messageType: 'template',
+      content: `content:${contentSid}`,
+      metadata: {
+        source: 'bot',
+        channel: 'twilio',
+        contentSid,
+        variables: options.variables ?? undefined,
+        logLabel: options.logLabel ?? undefined,
+      },
     });
     return message;
   } catch (error) {
@@ -152,6 +223,14 @@ export async function sendInteractiveMessage(
       content: JSON.stringify(interactive),
       isFromCustomer: false,
     });
+    await persistOutboundMessageToDb({
+      from,
+      to,
+      waSid: message.sid,
+      messageType: 'interactive',
+      content: JSON.stringify(interactive),
+      metadata: { source: 'bot', channel: 'twilio' },
+    });
     return message;
   } catch (error) {
     console.error('❌ Error sending interactive message:', error);
@@ -196,6 +275,15 @@ export async function sendMediaMessage(
       content: caption || `[media:${messageType}]`,
       mediaUrl: options.mediaUrls[0] ?? null,
       isFromCustomer: false,
+    });
+    await persistOutboundMessageToDb({
+      from,
+      to,
+      waSid: message.sid,
+      messageType,
+      content: caption || `[media:${messageType}]`,
+      mediaUrl: options.mediaUrls[0] ?? null,
+      metadata: { source: 'bot', channel: 'twilio' },
     });
     return { message, messageType };
   } catch (error) {
