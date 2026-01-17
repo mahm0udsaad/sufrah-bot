@@ -151,7 +151,7 @@ WHATSAPP_SEND_TOKEN=your_whatsapp_send_token
 # Optional Configuration
 DASHBOARD_BASE_URL=https://sufrah-bot.vercel.app
 PAYMENT_LINK=https://example.com/pay
-SUPPORT_CONTACT=+966-500-000000
+SUPPORT_CONTACT=0567824859
 EOF
         echo -e "${GREEN}✅ .env file created${NC}"
         echo -e "${YELLOW}⚠️  IMPORTANT: Edit .env file with your actual credentials!${NC}"

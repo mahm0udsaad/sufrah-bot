@@ -46,7 +46,7 @@ export const TWILIO_QUICK_REPLAY_SID = process.env.TWILIO_QUICK_REPLAY_SID || ''
 // App settings
 export const NOMINATIM_USER_AGENT = process.env.NOMINATIM_USER_AGENT || 'bun-whatsapp-bot/1.0';
 export const PAYMENT_LINK = process.env.PAYMENT_LINK || 'https://example.com/pay';
-export const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || '+966-500-000000';
+export const SUPPORT_CONTACT = process.env.SUPPORT_CONTACT || '0567824859';
 export const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL || 'https://sufrah-bot.vercel.app';
 export const WHATSAPP_SEND_TOKEN = process.env.WHATSAPP_SEND_TOKEN || '';
 

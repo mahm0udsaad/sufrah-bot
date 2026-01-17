@@ -15,7 +15,7 @@ async function main() {
       twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
       twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || 'your_auth_token_here',
       restaurantName: 'مطعم سفرة التجريبي',
-      supportContact: '+966-500-000000',
+      supportContact: '0567824859',
       paymentLink: 'https://example.com/pay',
       isActive: true,
     },
